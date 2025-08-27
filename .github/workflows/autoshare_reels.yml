@@ -1,0 +1,25 @@
+name: Auto Share Reels
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # Setiap hari jam 7 pagi
+  workflow_call:
+
+jobs:
+  share:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install puppeteer axios
+
+      - name: Run Auto Share Reels
+        run: node bot/autoshare_reels.js
+        env:
+          FACEBOOK_COOKIES: ${{ secrets.FACEBOOK_COOKIES }}

@@ -1,0 +1,43 @@
+name: Facebook Friend Comment Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */4 * * *' # Jalankan setiap 4 jam
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 2. Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 3. Install Dependencies
+        run: npm install
+
+      - name: 4. Run the Friend Comment Bot
+        run: npm run start:teman
+        env:
+          # Mengambil cookies dan email lisensi dari GitHub Secrets
+          # GEMINI_API_KEY sudah tidak diperlukan di sini
+          FACEBOOK_COOKIES: ${{ secrets.FACEBOOK_COOKIES }}
+          BOT_LICENSE_EMAIL: ${{ secrets.BOT_LICENSE_EMAIL }}
+
+      # Langkah commit log bisa dihilangkan karena bot ini tidak membuat file log permanen
+      
+      - name: 6. Upload Debug Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots-teman
+          path: artifacts/
