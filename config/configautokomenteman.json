@@ -1,0 +1,11 @@
+{
+  "headless": true,
+  "targetURL": "https://www.facebook.com/?filter=friends&sk=h_chr",
+  "postsToComment": 5,
+  "minIntervalSeconds": 60,
+  "maxIntervalSeconds": 120,
+  "ai_settings": {
+    "enabled": true,
+    "gemini_prompt": "Buat satu komentar singkat yang relevan (maksimal 150 karakter) untuk postingan Facebook dengan caption berikut: '{CAPTION_POSTINGAN}'. Di akhir komentar, tambahkan link ini: '{LINK_CTA}'"
+  }
+}
