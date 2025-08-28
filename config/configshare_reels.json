@@ -2,9 +2,9 @@
   "headless": true,
   "minIntervalSeconds": 60,
   "maxIntervalSeconds": 180,
-  "caption_mode": "ai",         // "ai", "static", atau "none"
+  "caption_mode": "ai",
   "static_caption": "Lihat video keren ini! 🚀",
   "ai_caption_prompt": "Buat caption menarik dan viral untuk Reels ini: {CAPTION_VIDEO}. Gunakan 1-2 emoji.",
   "maxSharesPerRun": 5,
-  "scrapeFrom": "https://www.facebook.com/reels/?source=seen_tab"  // Bisa diganti ke halaman tertentu
+  "scrapeFrom": "https://www.facebook.com/profile.php?id=100088541283852&sk=reels_tab"
 }
