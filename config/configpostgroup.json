@@ -3,7 +3,7 @@
   "minIntervalSeconds": 60,
   "maxIntervalSeconds": 180,
   "linkPreviewIntervalSeconds": 10,
-  "post_mode": "reels",  // "text" atau "reels"
+  "post_mode": "reels",
   "ai_status": {
     "enabled": true,
     "prompt": "Buat caption menarik untuk video viral: {VIDEO_URL}"
