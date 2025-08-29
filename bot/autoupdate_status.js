@@ -84,40 +84,109 @@ async function logStatus(status) {
 
 // Debug function to find elements
 async function debugElements(page) {
-  console.log("🔍 Debug: Mencari elemen posting...");
+  console.log("🔍 Debug: Menganalisa halaman Facebook...");
   
   // Screenshot untuk debug
   await page.screenshot({ path: path.join(ARTIFACTS_DIR, "debug_page.png") });
   console.log("📸 Debug screenshot disimpan di debug_page.png");
   
-  // Cek semua div dengan role button
-  const buttons = await page.evaluate(() => {
-    const elements = document.querySelectorAll('div[role="button"]');
-    return Array.from(elements).map((el, index) => ({
-      index,
-      text: el.innerText?.slice(0, 100) || '',
-      ariaLabel: el.getAttribute('aria-label') || '',
-      className: el.className || '',
-      visible: el.offsetParent !== null
-    }));
+  // Analisa semua elemen yang mungkin bisa diklik
+  const pageAnalysis = await page.evaluate(() => {
+    const result = {
+      buttons: [],
+      inputs: [],
+      composers: [],
+      pageInfo: {
+        title: document.title,
+        url: window.location.href,
+        userAgent: navigator.userAgent
+      }
+    };
+    
+    // Cek semua button
+    const buttons = document.querySelectorAll('div[role="button"]');
+    buttons.forEach((button, index) => {
+      const rect = button.getBoundingClientRect();
+      const text = (button.innerText || button.textContent || '').slice(0, 100);
+      const ariaLabel = button.getAttribute('aria-label') || '';
+      
+      if (button.offsetParent !== null && rect.height > 20) {
+        result.buttons.push({
+          index,
+          text: text.trim(),
+          ariaLabel,
+          className: button.className,
+          position: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+          visible: true
+        });
+      }
+    });
+    
+    // Cek input areas
+    const inputs = document.querySelectorAll('[contenteditable="true"], [role="textbox"], textarea');
+    inputs.forEach((input, index) => {
+      const rect = input.getBoundingClientRect();
+      const ariaLabel = input.getAttribute('aria-label') || '';
+      const placeholder = input.getAttribute('placeholder') || '';
+      
+      if (input.offsetParent !== null) {
+        result.inputs.push({
+          index,
+          tagName: input.tagName,
+          ariaLabel,
+          placeholder,
+          className: input.className,
+          position: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+        });
+      }
+    });
+    
+    // Cek composer areas
+    const composers = document.querySelectorAll('[data-pagelet*="composer"], [data-pagelet*="Composer"]');
+    composers.forEach((composer, index) => {
+      result.composers.push({
+        index,
+        pagelet: composer.getAttribute('data-pagelet'),
+        innerHTML: composer.innerHTML.slice(0, 200)
+      });
+    });
+    
+    return result;
   });
   
-  console.log("🔍 Semua button yang ditemukan:", buttons.filter(b => b.visible));
+  console.log("📊 Analisa halaman:");
+  console.log(`- Title: ${pageAnalysis.pageInfo.title}`);
+  console.log(`- URL: ${pageAnalysis.pageInfo.url}`);
+  console.log(`- Buttons ditemukan: ${pageAnalysis.buttons.length}`);
+  console.log(`- Input areas ditemukan: ${pageAnalysis.inputs.length}`);
+  console.log(`- Composer areas ditemukan: ${pageAnalysis.composers.length}`);
   
-  // Cek elemen dengan contenteditable
-  const editables = await page.evaluate(() => {
-    const elements = document.querySelectorAll('[contenteditable="true"]');
-    return Array.from(elements).map((el, index) => ({
-      index,
-      tagName: el.tagName,
-      ariaLabel: el.getAttribute('aria-label') || '',
-      placeholder: el.getAttribute('placeholder') || '',
-      className: el.className || '',
-      visible: el.offsetParent !== null
-    }));
+  // Show relevant buttons (potential post buttons)
+  const relevantButtons = pageAnalysis.buttons.filter(btn => 
+    btn.text.toLowerCase().includes('apa yang') ||
+    btn.text.toLowerCase().includes('what') ||
+    btn.ariaLabel.toLowerCase().includes('post') ||
+    btn.ariaLabel.toLowerCase().includes('tulis') ||
+    btn.ariaLabel.toLowerCase().includes('create') ||
+    (btn.position.top > 100 && btn.position.top < 500 && btn.position.width > 200)
+  );
+  
+  console.log("🎯 Button yang relevan:");
+  relevantButtons.forEach(btn => {
+    console.log(`  - Text: "${btn.text}" | AriaLabel: "${btn.ariaLabel}" | Pos: ${btn.position.top}px`);
   });
   
-  console.log("🔍 Elemen contenteditable yang ditemukan:", editables.filter(e => e.visible));
+  console.log("📝 Input areas:");
+  pageAnalysis.inputs.forEach(input => {
+    console.log(`  - ${input.tagName} | AriaLabel: "${input.ariaLabel}" | Placeholder: "${input.placeholder}"`);
+  });
+  
+  // Save full analysis to file
+  await require('fs').promises.writeFile(
+    path.join(ARTIFACTS_DIR, "page_analysis.json"), 
+    JSON.stringify(pageAnalysis, null, 2)
+  );
+  console.log("📄 Analisa lengkap disimpan di page_analysis.json");
 }
 
 // Improved function to find and click post area
@@ -125,74 +194,166 @@ async function findAndClickPostArea(page) {
   console.log("🔍 Mencari area posting...");
   
   // Wait for page to fully load
-  await page.waitForLoadState?.('networkidle') || delay(5000);
+  await delay(8000);
   
-  // Comprehensive selectors for different Facebook layouts
-  const postAreaSelectors = [
-    // Indonesian text variations
-    'div[role="button"]:has-text("Apa yang Anda pikirkan")',
-    'div[role="button"]:has-text("What\'s on your mind")',
-    '[aria-label*="Create a post"]',
-    '[aria-label*="Write something"]',
-    '[aria-label*="Tulis sesuatu"]',
+  // Strategy 1: Find by text content using evaluate
+  console.log("🔍 Strategi 1: Mencari berdasarkan teks...");
+  const textBasedResult = await page.evaluate(() => {
+    const texts = [
+      "Apa yang Anda pikirkan",
+      "What's on your mind", 
+      "Apa yang kamu pikirkan",
+      "Tulis sesuatu",
+      "Write something",
+      "Share an update"
+    ];
     
-    // Generic selectors
-    'div[role="button"][aria-describedby]',
-    'div[data-pagelet="ProfileComposer"] div[role="button"]',
-    'div[data-pagelet="composer"] div[role="button"]',
-    
-    // Fallback selectors
+    const allButtons = document.querySelectorAll('div[role="button"]');
+    for (const button of allButtons) {
+      const buttonText = button.innerText || button.textContent || '';
+      const ariaLabel = button.getAttribute('aria-label') || '';
+      const fullText = (buttonText + ' ' + ariaLabel).toLowerCase();
+      
+      for (const searchText of texts) {
+        if (fullText.includes(searchText.toLowerCase())) {
+          if (button.offsetParent !== null && 
+              button.getBoundingClientRect().height > 20 &&
+              button.getBoundingClientRect().width > 100) {
+            return { found: true, element: button };
+          }
+        }
+      }
+    }
+    return { found: false };
+  });
+  
+  if (textBasedResult.found) {
+    try {
+      await page.evaluate((el) => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, textBasedResult.element);
+      await delay(2000);
+      await page.evaluate((el) => el.click(), textBasedResult.element);
+      console.log("✅ Area posting ditemukan dengan pencarian teks!");
+      await delay(3000);
+      return true;
+    } catch (error) {
+      console.log(`❌ Gagal klik elemen teks: ${error.message}`);
+    }
+  }
+  
+  // Strategy 2: Common CSS selectors
+  console.log("🔍 Strategi 2: CSS selector umum...");
+  const commonSelectors = [
+    '[aria-label*="Create"]',
+    '[aria-label*="post"]',
+    '[aria-label*="Post"]',
+    '[aria-label*="Tulis"]',
+    '[data-pagelet="ProfileComposer"] [role="button"]',
+    '[data-pagelet="composer"] [role="button"]',
     'div.x1i10hfl[role="button"]',
-    'div[role="button"]:not([aria-hidden="true"])',
+    'div[role="button"][tabindex="0"]'
   ];
   
-  // Try each selector
-  for (const selector of postAreaSelectors) {
+  for (const selector of commonSelectors) {
     try {
       console.log(`🔍 Mencoba selector: ${selector}`);
       
-      // Wait for element to be present and visible
-      await page.waitForFunction((sel) => {
-        const elements = document.querySelectorAll(sel);
-        for (const el of elements) {
-          if (el.offsetParent !== null && 
-              el.getBoundingClientRect().height > 10 &&
-              el.getBoundingClientRect().width > 10) {
-            return true;
-          }
-        }
-        return false;
-      }, { timeout: 8000 }, selector);
-      
-      // Find the actual clickable element
-      const element = await page.evaluateHandle((sel) => {
-        const elements = document.querySelectorAll(sel);
-        for (const el of elements) {
-          if (el.offsetParent !== null && 
-              el.getBoundingClientRect().height > 10 &&
-              el.getBoundingClientRect().width > 10) {
-            return el;
-          }
-        }
-        return null;
-      }, selector);
-      
-      if (element) {
-        // Scroll to element
-        await page.evaluate((el) => {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const elements = await page.$(selector);
+      for (const element of elements) {
+        const isVisible = await page.evaluate((el) => {
+          return el.offsetParent !== null && 
+                 el.getBoundingClientRect().height > 20 &&
+                 el.getBoundingClientRect().width > 100;
         }, element);
         
-        await delay(2000);
-        
-        // Click the element
-        await element.click();
-        console.log(`✅ Area posting ditemukan dan diklik: ${selector}`);
-        await delay(3000);
-        return true;
+        if (isVisible) {
+          await page.evaluate((el) => {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, element);
+          await delay(2000);
+          await element.click();
+          console.log(`✅ Area posting ditemukan: ${selector}`);
+          await delay(3000);
+          return true;
+        }
       }
     } catch (error) {
       console.log(`❌ Selector gagal: ${selector} - ${error.message}`);
+    }
+  }
+  
+  // Strategy 3: Find by position (top area of page)
+  console.log("🔍 Strategi 3: Mencari di area atas halaman...");
+  const positionBasedResult = await page.evaluate(() => {
+    const allButtons = document.querySelectorAll('div[role="button"]');
+    const candidates = [];
+    
+    for (const button of allButtons) {
+      const rect = button.getBoundingClientRect();
+      if (rect.top > 100 && rect.top < 500 && // In upper area
+          rect.height > 30 && rect.width > 200 && // Reasonable size
+          button.offsetParent !== null) { // Visible
+        candidates.push({
+          element: button,
+          top: rect.top,
+          text: (button.innerText || '').slice(0, 50)
+        });
+      }
+    }
+    
+    // Sort by position (topmost first)
+    candidates.sort((a, b) => a.top - b.top);
+    
+    return candidates.length > 0 ? { found: true, element: candidates[0].element } : { found: false };
+  });
+  
+  if (positionBasedResult.found) {
+    try {
+      await page.evaluate((el) => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, positionBasedResult.element);
+      await delay(2000);
+      await page.evaluate((el) => el.click(), positionBasedResult.element);
+      console.log("✅ Area posting ditemukan berdasarkan posisi!");
+      await delay(3000);
+      return true;
+    } catch (error) {
+      console.log(`❌ Gagal klik elemen posisi: ${error.message}`);
+    }
+  }
+  
+  // Strategy 4: Look for composer or input areas directly
+  console.log("🔍 Strategi 4: Mencari area input langsung...");
+  const inputSelectors = [
+    '[contenteditable="true"]',
+    '[role="textbox"]',
+    'textarea',
+    '[data-text="true"]'
+  ];
+  
+  for (const selector of inputSelectors) {
+    try {
+      const element = await page.$(selector);
+      if (element) {
+        const isVisible = await page.evaluate((el) => {
+          return el.offsetParent !== null && 
+                 el.getBoundingClientRect().height > 20;
+        }, element);
+        
+        if (isVisible) {
+          await page.evaluate((el) => {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, element);
+          await delay(2000);
+          await element.click();
+          console.log(`✅ Area input ditemukan langsung: ${selector}`);
+          await delay(3000);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.log(`❌ Input selector gagal: ${selector} - ${error.message}`);
     }
   }
   
@@ -253,64 +414,128 @@ async function publishPost(page) {
   // Wait a bit for the post button to become available
   await delay(3000);
   
-  const publishSelectors = [
-    // Indonesian
-    'div[aria-label="Kirim"][role="button"]',
-    'div[aria-label="Posting"][role="button"]',
-    'div[aria-label="Bagikan"][role="button"]',
+  // Strategy 1: Find by text content
+  console.log("📤 Strategi 1: Mencari tombol berdasarkan teks...");
+  const textBasedResult = await page.evaluate(() => {
+    const texts = ['Post', 'Posting', 'Kirim', 'Bagikan', 'Share', 'Publikasikan'];
+    const allButtons = document.querySelectorAll('div[role="button"], button');
     
-    // English
-    'div[aria-label="Post"][role="button"]',
-    'div[aria-label="Share"][role="button"]',
-    'div[aria-label="Publish"][role="button"]',
-    
-    // Generic
-    'div[role="button"]:has-text("Post")',
-    'div[role="button"]:has-text("Posting")',
-    'button[type="submit"]',
-  ];
-  
-  for (const selector of publishSelectors) {
-    try {
-      console.log(`📤 Mencoba publish selector: ${selector}`);
+    for (const button of allButtons) {
+      const buttonText = (button.innerText || button.textContent || '').trim();
+      const ariaLabel = button.getAttribute('aria-label') || '';
       
-      // Wait for button to be clickable
-      await page.waitForFunction((sel) => {
-        const elements = document.querySelectorAll(sel);
-        for (const el of elements) {
-          if (el.offsetParent !== null && 
-              !el.disabled &&
-              el.getAttribute('aria-disabled') !== 'true' &&
-              el.getBoundingClientRect().height > 10) {
-            return true;
+      for (const searchText of texts) {
+        if (buttonText === searchText || ariaLabel.includes(searchText)) {
+          if (button.offsetParent !== null && 
+              !button.disabled &&
+              button.getAttribute('aria-disabled') !== 'true' &&
+              button.getBoundingClientRect().height > 20) {
+            return { found: true, element: button, text: buttonText };
           }
         }
-        return false;
-      }, { timeout: 10000 }, selector);
-      
-      // Click the publish button
-      await page.click(selector);
-      console.log(`✅ Tombol publish diklik: ${selector}`);
-      
-      // Wait for post to be published
-      await delay(5000);
-      
-      // Check if post was successful (look for success indicators)
-      try {
-        await page.waitForFunction(() => {
-          return document.querySelector('[aria-label*="posted"]') ||
-                 document.querySelector('[data-testid="post-success"]') ||
-                 !document.querySelector('div[role="dialog"]'); // Dialog closed
-        }, { timeout: 10000 });
-        
-        return true;
-      } catch {
-        console.log("⚠️  Tidak dapat konfirmasi post berhasil, tapi tombol sudah diklik");
-        return true;
       }
-      
+    }
+    return { found: false };
+  });
+  
+  if (textBasedResult.found) {
+    try {
+      await page.evaluate((el) => el.click(), textBasedResult.element);
+      console.log(`✅ Tombol publish diklik: "${textBasedResult.text}"`);
+      await delay(5000);
+      return true;
     } catch (error) {
-      console.log(`❌ Publish selector gagal: ${selector} - ${error.message}`);
+      console.log(`❌ Gagal klik tombol teks: ${error.message}`);
+    }
+  }
+  
+  // Strategy 2: Find by aria-label
+  console.log("📤 Strategi 2: Mencari berdasarkan aria-label...");
+  const ariaLabels = [
+    'Kirim',
+    'Posting', 
+    'Bagikan',
+    'Post',
+    'Share',
+    'Publish'
+  ];
+  
+  for (const label of ariaLabels) {
+    try {
+      const elements = await page.$(`[aria-label="${label}"][role="button"]`);
+      for (const element of elements) {
+        const isEnabled = await page.evaluate((el) => {
+          return el.offsetParent !== null && 
+                 !el.disabled &&
+                 el.getAttribute('aria-disabled') !== 'true';
+        }, element);
+        
+        if (isEnabled) {
+          await element.click();
+          console.log(`✅ Tombol publish diklik via aria-label: "${label}"`);
+          await delay(5000);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.log(`❌ Aria-label gagal: ${label} - ${error.message}`);
+    }
+  }
+  
+  // Strategy 3: Find enabled buttons in composer area
+  console.log("📤 Strategi 3: Mencari tombol aktif di area composer...");
+  const activeButtonResult = await page.evaluate(() => {
+    const allButtons = document.querySelectorAll('div[role="button"], button');
+    const enabledButtons = [];
+    
+    for (const button of allButtons) {
+      if (button.offsetParent !== null && 
+          !button.disabled &&
+          button.getAttribute('aria-disabled') !== 'true') {
+        
+        const rect = button.getBoundingClientRect();
+        const text = (button.innerText || '').trim();
+        const ariaLabel = button.getAttribute('aria-label') || '';
+        
+        // Look for buttons that might be publish buttons
+        if ((text.length > 0 && text.length < 20) || 
+            (ariaLabel.length > 0 && ariaLabel.length < 50)) {
+          enabledButtons.push({
+            element: button,
+            text: text,
+            ariaLabel: ariaLabel,
+            position: rect
+          });
+        }
+      }
+    }
+    
+    // Sort by position (bottom-right buttons are usually publish buttons)
+    enabledButtons.sort((a, b) => b.position.top - a.position.top);
+    
+    return enabledButtons.length > 0 ? { found: true, buttons: enabledButtons } : { found: false };
+  });
+  
+  if (activeButtonResult.found) {
+    for (const buttonInfo of activeButtonResult.buttons.slice(0, 3)) { // Try top 3
+      try {
+        console.log(`📤 Mencoba tombol: "${buttonInfo.text}" / "${buttonInfo.ariaLabel}"`);
+        await page.evaluate((el) => el.click(), buttonInfo.element);
+        await delay(3000);
+        
+        // Check if we're still in composer (if not, probably succeeded)
+        const stillInComposer = await page.evaluate(() => {
+          return document.querySelector('div[role="dialog"]') !== null ||
+                 document.querySelector('[contenteditable="true"]') !== null;
+        });
+        
+        if (!stillInComposer) {
+          console.log(`✅ Post berhasil dipublish!`);
+          return true;
+        }
+      } catch (error) {
+        console.log(`❌ Gagal klik tombol aktif: ${error.message}`);
+      }
     }
   }
   
