@@ -4,9 +4,7 @@ name: Auto Update Status
 on:
   # 🔁 Otomatis 3x sehari (jam viral)
   schedule:
-    - cron: '0 7 * * *'   # 07:00 WIB
-    - cron: '0 12 * * *'  # 12:00 WIB
-    - cron: '0 19 * * *'  # 19:00 WIB
+    - cron: '0 0 * * *'   # 07:00 WIB
 
   # 🖱️ Manual via GitHub Actions
   workflow_dispatch:
