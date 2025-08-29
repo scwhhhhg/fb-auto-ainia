@@ -1,0 +1,25 @@
+name: Scrape Reels (Update Harian)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'    # Setiap hari jam 6 pagi
+  workflow_dispatch:        # Bisa dijalankan manual
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install puppeteer
+        run: npm install puppeteer
+
+      - name: Run Scrape Reels
+        run: node bot/scrape_reels.js
+        env:
+          FACEBOOK_COOKIES: ${{ secrets.FACEBOOK_COOKIES }}
