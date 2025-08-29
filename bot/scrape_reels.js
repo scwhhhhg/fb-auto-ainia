@@ -34,7 +34,6 @@ async function loadCookiesFromEnv() {
   }
 
   return cookies.map(cookie => {
-    // Perbaiki sameSite jika tidak valid
     const sameSite = ['Strict', 'Lax', 'None'].includes(cookie.sameSite)
       ? cookie.sameSite
       : 'Lax';
@@ -101,3 +100,82 @@ async function scrapeReelsFromPage(page) {
 
     links.forEach(url => urls.add(url));
     console.log(`   → Ditemukan ${urls.size} Reels unik (scroll ${i + 1}/${config.maxScrolls})`);
+
+    await page.evaluate(() => window.scrollBy(0, 1000));
+    await delay(4000);
+  }
+
+  return Array.from(urls);
+}
+
+// Main function
+async function main() {
+  let browser;
+  console.log("🔄 Memulai bot Auto Update Reels URL...");
+
+  try {
+    await fs.mkdir(ARTIFACTS_DIR, { recursive: true });
+
+    browser = await puppeteer.launch({
+      headless: config.headless,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled"
+      ]
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
+
+    // Load cookies
+    const cookies = await loadCookiesFromEnv();
+    await page.setCookie(...cookies);
+    console.log("✅ Cookies Facebook dimuat.");
+
+    // Load & bersihkan history lama
+    let existingReels = await loadReelsWithTimestamp();
+    existingReels = filterRecentReels(existingReels);
+    const existingUrls = new Set(existingReels.map(r => r.url));
+
+    console.log(`🧹 Membersihkan: ${existingReels.length} Reels tersisa setelah filter 7 hari.`);
+
+    // Scrape Reels baru
+    const newUrls = await scrapeReelsFromPage(page);
+    let newCount = 0;
+
+    for (const url of newUrls) {
+      if (!existingUrls.has(url)) {
+        existingReels.push({ url, timestamp: nowInSeconds() });
+        existingUrls.add(url);
+        newCount++;
+      }
+    }
+
+    // Simpan kembali
+    await saveReelsToFile(existingReels);
+
+    console.log(`✅ Scraping selesai.`);
+    console.log(`📥 Total Reels: ${existingReels.length}`);
+    console.log(`🆕 Ditambahkan: ${newCount} Reels baru`);
+
+  } catch (error) {
+    console.error("🚨 Error saat scraping:", error.message);
+    try {
+      await page?.screenshot({ path: path.join(ARTIFACTS_DIR, "scrape_error.png") });
+    } catch {}
+    process.exit(1);
+  } finally {
+    if (browser) await browser.close();
+    console.log("🏁 Scraping selesai.");
+  }
+}
+
+// Jalankan jika file dijalankan langsung
+if (require.main === module) {
+  main();
+}
+
+// Ekspor untuk digunakan di file lain
+module.exports = main;
