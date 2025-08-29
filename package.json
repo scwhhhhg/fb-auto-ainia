@@ -6,7 +6,7 @@
   "scripts": {
     "start:postgroup": "node bot/postgroup.js",
     "start:autoupdate": "node bot/autoupdate_status.js",
-    "start:autoshare": "node bot/autoshare_reels.js"
+    "start:autoshare": "node bot/autoshare_reels.js",
     "start:video": "node bot/autokomenvideo.js",
     "start:group": "node bot/autokomengroup.js",
     "start:reels": "node bot/autoreels.js",
