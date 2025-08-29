@@ -122,19 +122,21 @@ async function main() {
       'div.xi81zsa.x1lkfr7t.xkjl1po.x1mzt3pk.xh8yej3.x13faqbe'
     ];
 
-    let selectedSelector = null;
+    let found = false;
     for (const sel of selectors) {
       try {
-        await page.waitForFunction((s) => {
-          const el = document.querySelector(s);
+        await page.waitForFunction((selector) => {
+          const el = document.querySelector(selector);
           return el && el.offsetParent !== null && el.getBoundingClientRect().height > 20;
-        }, { timeout: 3000 }, sel);
-        selectedSelector = sel;
+        }, { timeout: 5000 }, sel);
+        await page.click(sel);
+        console.log(`✅ Area postingan diaktifkan: ${sel}`);
+        found = true;
         break;
       } catch {}
     }
 
-    if (!selectedSelector) {
+    if (!found) {
       throw new Error("Tidak dapat menemukan area posting.");
     }
 
