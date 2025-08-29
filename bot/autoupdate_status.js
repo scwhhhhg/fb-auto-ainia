@@ -113,10 +113,12 @@ async function main() {
 
     // Cari area posting
     const selectors = [
+      'div[role="button"]:text("Tulis sesuatu")',
+      'div[role="button"]:text("Write something")',
+      'div[role="button"]:text("Buat postingan")',
       'div[role="button"][aria-label*="post"]',
-      'div[role="button"]:text("Apa yang Anda pikirkan sekarang?")',
-      'div[role="button"]:text("What\'s on your mind")',
       '[data-pagelet="ProfileComposer"] button',
+      'div.x1lcm9me.x1yr5g0i.xds686m.x10l3doa.x1e0fer8.x1jx94hy.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m',
       'div.xi81zsa.x1lkfr7t.xkjl1po.x1mzt3pk.xh8yej3.x13faqbe'
     ];
 
@@ -193,8 +195,8 @@ async function main() {
 
     // Klik tombol "Posting"
     const postButtonSelectors = [
-      'div[aria-label="Posting"]',
       'div[aria-label="Kirim"]',
+      'div[aria-label="Posting"]',
       'div[aria-label="Post"]',
       'div[role="button"]:text("Kirim")',
       'div[role="button"]:text("Posting")',
