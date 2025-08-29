@@ -72,8 +72,22 @@ async function loadReelsWithTimestamp() {
 
 // Simpan kembali ke file
 async function saveReelsToFile(reels) {
+  console.log("🔍 Reels yang akan disimpan:", reels);
+  console.log("📄 Menyimpan ke:", REELS_URLS_PATH);
+
   const content = reels.map(r => `${r.url}|${r.timestamp}`).join("\n");
-  await fs.writeFile(REELS_URLS_PATH, content, "utf8");
+  try {
+    await fs.writeFile(REELS_URLS_PATH, content, "utf8");
+    console.log(`✅ Berhasil simpan ${reels.length} Reels ke ${REELS_URLS_PATH}`);
+  } catch (error) {
+    console.error("❌ Gagal simpan ke reels_urls.txt:", error.message);
+    try {
+      await fs.writeFile(REELS_URLS_PATH, "DEBUG: " + error.message, "utf8");
+    } catch (e) {
+      console.error("❌ Bahkan file debug pun gagal disimpan!");
+    }
+    throw error;
+  }
 }
 
 // Hapus Reels lebih dari 7 hari
