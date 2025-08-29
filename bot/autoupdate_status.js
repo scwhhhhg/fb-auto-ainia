@@ -117,7 +117,7 @@ async function main() {
       'div[role="button"]:text("Apa yang Anda pikirkan sekarang?")',
       'div[role="button"]:text("What\'s on your mind")',
       '[data-pagelet="ProfileComposer"] button',
-      'xi81zsa x1lkfr7t xkjl1po x1mzt3pk xh8yej3 x13faqbe'
+      'div.xi81zsa.x1lkfr7t.xkjl1po.x1mzt3pk.xh8yej3.x13faqbe'
     ];
 
     let selectedSelector = null;
