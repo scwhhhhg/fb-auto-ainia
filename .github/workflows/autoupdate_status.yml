@@ -1,9 +1,11 @@
 # .github/workflows/autoupdate_status.yml
-name: Auto Update Status
+name: Auto Update Status (3x Sehari)
 
 on:
   schedule:
-    - cron: '0 8 * * *'   # Setiap hari jam 8 pagi
+    - cron: '0 7 * * *'   # 07:00 WIB
+    - cron: '0 12 * * *'  # 12:00 WIB
+    - cron: '0 19 * * *'  # 19:00 WIB
   workflow_call:
 
 jobs:
