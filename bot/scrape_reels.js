@@ -8,37 +8,60 @@ const REELS_URLS_PATH = path.join(__dirname, "../reels_urls.txt");
 const ARTIFACTS_DIR = path.join(__dirname, "../artifacts");
 const CONFIG_PATH = path.join(__dirname, "../config/configscrape_reels.json");
 
-// Load config
-const config = require("../config/configscrape_reels.json");
+// Load config (jika ada)
+let config = { maxScrolls: 10, headless: true, targetURL: "https://www.facebook.com/reels/?source=seen_tab" };
+try {
+  config = require("../config/configscrape_reels.json");
+} catch (e) {
+  console.log("⚠️  configscrape_reels.json tidak ditemukan, gunakan default.");
+}
 
 // Helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const nowInSeconds = () => Math.floor(Date.now() / 1000);
 const MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 hari
 
-// Load cookies dari environment
+// Load cookies dari environment, dengan perbaikan sameSite
 async function loadCookiesFromEnv() {
   const cookieString = process.env.FACEBOOK_COOKIES;
   if (!cookieString) throw new Error("FACEBOOK_COOKIES tidak ditemukan di environment!");
-  return JSON.parse(cookieString).map(c => ({
-    name: c.name,
-    value: c.value,
-    domain: c.domain,
-    path: c.path,
-    httpOnly: c.httpOnly,
-    secure: c.secure,
-    sameSite: c.sameSite
-  }));
+
+  let cookies;
+  try {
+    cookies = JSON.parse(cookieString);
+  } catch (e) {
+    throw new Error("FACEBOOK_COOKIES tidak valid format JSON!");
+  }
+
+  return cookies.map(cookie => {
+    // Perbaiki sameSite jika tidak valid
+    const sameSite = ['Strict', 'Lax', 'None'].includes(cookie.sameSite)
+      ? cookie.sameSite
+      : 'Lax';
+
+    return {
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain || '.facebook.com',
+      path: cookie.path || '/',
+      httpOnly: !!cookie.httpOnly,
+      secure: !!cookie.secure,
+      sameSite
+    };
+  });
 }
 
-// Baca file & parsing: url|timestamp
+// Baca file reels_urls.txt dengan format: url|timestamp
 async function loadReelsWithTimestamp() {
   try {
     const data = await fs.readFile(REELS_URLS_PATH, "utf8");
     const lines = data.split("\n").filter(Boolean);
     return lines.map(line => {
       const [url, ts] = line.split("|");
-      return { url: url.trim(), timestamp: parseInt(ts, 10) };
+      return { 
+        url: url.trim(), 
+        timestamp: parseInt(ts, 10) || nowInSeconds() 
+      };
     });
   } catch (e) {
     if (e.code === "ENOENT") {
@@ -48,7 +71,7 @@ async function loadReelsWithTimestamp() {
   }
 }
 
-// Simpan kembali ke file (setelah dibersihkan & ditambah baru)
+// Simpan kembali ke file
 async function saveReelsToFile(reels) {
   const content = reels.map(r => `${r.url}|${r.timestamp}`).join("\n");
   await fs.writeFile(REELS_URLS_PATH, content, "utf8");
@@ -63,7 +86,7 @@ function filterRecentReels(reels) {
 // Ambil URL Reels dari halaman
 async function scrapeReelsFromPage(page) {
   console.log("🔍 Memulai scraping Reels...");
-  await page.goto(config.targetURL, { waitUntil: "networkidle2" });
+  await page.goto(config.targetURL, { waitUntil: "networkidle2" }).catch(() => {});
   await delay(8000);
 
   const urls = new Set();
@@ -78,71 +101,3 @@ async function scrapeReelsFromPage(page) {
 
     links.forEach(url => urls.add(url));
     console.log(`   → Ditemukan ${urls.size} Reels unik (scroll ${i + 1}/${config.maxScrolls})`);
-
-    await page.evaluate(() => window.scrollBy(0, 1000));
-    await delay(4000);
-  }
-
-  return Array.from(urls);
-}
-
-// Main function
-async function main() {
-  let browser;
-  console.log("🔄 Memulai bot Auto Update Reels URL...");
-
-  try {
-    await fs.mkdir(ARTIFACTS_DIR, { recursive: true });
-
-    browser = await puppeteer.launch({
-      headless: config.headless,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
-
-    // Load cookies
-    const cookies = await loadCookiesFromEnv();
-    await page.setCookie(...cookies);
-    console.log("✅ Cookies Facebook dimuat.");
-
-    // Load & bersihkan history lama
-    let existingReels = await loadReelsWithTimestamp();
-    existingReels = filterRecentReels(existingReels);
-    const existingUrls = new Set(existingReels.map(r => r.url));
-
-    console.log(`🧹 Membersihkan: ${existingReels.length} Reels tersisa setelah filter 7 hari.`);
-
-    // Scrape Reels baru
-    const newUrls = await scrapeReelsFromPage(page);
-    let newCount = 0;
-
-    for (const url of newUrls) {
-      if (!existingUrls.has(url)) {
-        existingReels.push({ url, timestamp: nowInSeconds() });
-        existingUrls.add(url);
-        newCount++;
-      }
-    }
-
-    // Simpan kembali
-    await saveReelsToFile(existingReels);
-
-    console.log(`✅ Scraping selesai.`);
-    console.log(`📥 Total Reels: ${existingReels.length}`);
-    console.log(`🆕 Ditambahkan: ${newCount} Reels baru`);
-
-  } catch (error) {
-    console.error("🚨 Error saat scraping:", error.message);
-    try {
-      await page.screenshot({ path: path.join(ARTIFACTS_DIR, "scrape_error.png") });
-    } catch {}
-    process.exit(1);
-  } finally {
-    if (browser) await browser.close();
-    console.log("🏁 Scraping selesai.");
-  }
-}
-
-main();
