@@ -1,18 +1,29 @@
 # .github/workflows/autoupdate_status.yml
-name: Auto Update Status (3x Sehari)
+name: Auto Update Status
 
 on:
+  # 🔁 Otomatis 3x sehari (jam viral)
   schedule:
     - cron: '0 7 * * *'   # 07:00 WIB
     - cron: '0 12 * * *'  # 12:00 WIB
     - cron: '0 19 * * *'  # 19:00 WIB
-  workflow_call:
+
+  # 🖱️ Manual via GitHub Actions
+  workflow_dispatch:
+    inputs:
+      run_reason:
+        description: 'Alasan menjalankan manual (opsional)'
+        required: false
+        default: "manual run"
 
 jobs:
-  update:
+  update-status:
     runs-on: ubuntu-latest
+    name: Run Auto Update Status
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -22,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: npm install puppeteer axios
 
-      - name: Run Auto Update Status
+      - name: Run Auto Update Status Bot
         run: node bot/autoupdate_status.js
         env:
           FACEBOOK_COOKIES: ${{ secrets.FACEBOOK_COOKIES }}
