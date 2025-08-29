@@ -1,4 +1,4 @@
-// bot/autoupdate_status.js
+// bot/update_status.js
 const puppeteer = require("puppeteer");
 const fs = require("fs").promises;
 const path = require("path");
@@ -11,7 +11,18 @@ const LOG_STATUS_PATH = path.join(__dirname, "../log_status.txt");
 const ARTIFACTS_DIR = path.join(__dirname, "../artifacts");
 
 // Load config
-const config = require("../config/config_update_status.json");
+let config;
+try {
+  config = require("../config/config_update_status.json");
+} catch (e) {
+  console.log("⚠️  config_update_status.json tidak ditemukan, gunakan default.");
+  config = {
+    headless: true,
+    minIntervalSeconds: 60,
+    maxIntervalSeconds: 180,
+    gemini_prompt: "Buat status media sosial yang menarik, positif, dan viral. 1-2 kalimat, gaya santai, 1 emoji."
+  };
+}
 
 // Helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -27,8 +38,8 @@ async function loadCookiesFromEnv() {
     value: c.value,
     domain: c.domain,
     path: c.path,
-    httpOnly: c.httpOnly,
-    secure: c.secure,
+    httpOnly: !!c.httpOnly,
+    secure: !!c.secure,
     sameSite: ['Strict', 'Lax', 'None'].includes(c.sameSite) ? c.sameSite : 'Lax'
   }));
 }
@@ -76,7 +87,7 @@ async function main() {
   let browser = null;
   let page = null;
 
-  console.log("🚀 Auto Update Status dimulai...");
+  console.log("🚀 Memulai bot Update Status di Beranda...");
 
   try {
     await fs.mkdir(ARTIFACTS_DIR, { recursive: true });
@@ -94,16 +105,16 @@ async function main() {
     await page.setCookie(...cookies);
 
     console.log("✅ Cookies dimuat. Membuka beranda...");
-    await page.goto("https://www.facebook.com/profile.php", { waitUntil: "networkidle2", timeout: 60000 });
-    await delay(5000);
+    await page.goto("https://www.facebook.com", { waitUntil: "networkidle2" });
+    await delay(7000);
 
     // Scroll ke atas
     await page.evaluate(() => window.scrollTo(0, 0));
     await delay(2000);
 
     // Tutup popup
-    const closeButtons = ['div[aria-label="Tutup"]', 'div[aria-label="Close"]', '[aria-label="Dismiss"]'];
-    for (const sel of closeButtons) {
+    const closeSelectors = ['div[aria-label="Tutup"]', 'div[aria-label="Close"]', '[aria-label="Dismiss"]'];
+    for (const sel of closeSelectors) {
       try {
         await page.waitForSelector(sel, { timeout: 3000 });
         await page.click(sel);
@@ -111,15 +122,16 @@ async function main() {
       } catch {}
     }
 
-    // Cari area posting
+    // Selector fleksibel untuk area posting
     const selectors = [
-      'div[role="button"]:text("Tulis sesuatu")',
-      'div[role="button"]:text("Write something")',
-      'div[role="button"]:text("Buat postingan")',
+      'div[role="button"]:text("Apa yang Anda pikirkan, Ainia?")',
+      'div[role="button"]:text("Apa yang Anda pikirkan sekarang?")',
+      'div[role="button"]:text("What\'s on your mind?")',
       'div[role="button"][aria-label*="post"]',
       '[data-pagelet="ProfileComposer"] button',
       'div.x1lcm9me.x1yr5g0i.xds686m.x10l3doa.x1e0fer8.x1jx94hy.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m',
       'div.xi81zsa.x1lkfr7t.xkjl1po.x1mzt3pk.xh8yej3.x13faqbe'
+      'div.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6'
     ];
 
     let found = false;
@@ -137,10 +149,9 @@ async function main() {
     }
 
     if (!found) {
-      throw new Error("Tidak dapat menemukan area posting.");
+      throw new Error("Tidak dapat menemukan area posting di beranda.");
     }
 
-    await page.click(selectedSelector);
     await delay(3000);
 
     // Generate status
@@ -167,46 +178,26 @@ async function main() {
       throw new Error("Tidak dapat menemukan area input teks.");
     }
 
-    await delay(2000);
-
-    // 🔽 KLIK "BERIKUTNYA" JIKA MUNCUL 🔽
-    const nextButtonSelectors = [
-      'div[aria-label="Berikutnya"]',
-      'div[aria-label="Next"]',
-      'div[role="button"]:text("Berikutnya")',
-      'div[role="button"]:text("Next")'
-    ];
-
-    let nextClicked = false;
-    for (const sel of nextButtonSelectors) {
+    // Klik "Berikutnya" jika muncul
+    const nextSelectors = ['div[aria-label="Berikutnya"]', 'div[aria-label="Next"]'];
+    for (const sel of nextSelectors) {
       try {
-        await page.waitForSelector(sel, { timeout: 3000, visible: true });
+        await page.waitForSelector(sel, { timeout: 3000 });
         await page.click(sel);
-        console.log(`✅ Tombol "Berikutnya" diklik: ${sel}`);
-        nextClicked = true;
         await delay(2000);
         break;
-      } catch (e) {
-        continue;
-      }
+      } catch {}
     }
 
-    if (!nextClicked) {
-      console.log("ℹ️  Tombol 'Berikutnya' tidak muncul. Lanjut ke 'Posting'...");
-    }
-
-    // Klik tombol "Posting"
-    const postButtonSelectors = [
-      'div[aria-label="Kirim"]',
-      'div[aria-label="Posting"]',
-      'div[aria-label="Post"]',
-      'div[role="button"]:text("Kirim")',
-      'div[role="button"]:text("Posting")',
-      'div[role="button"]:text("Post")'
+    // Klik "Posting"
+    const postSelectors = [
+      'div[aria-label="Kirim"][role="button"]',
+      'div[aria-label="Posting"][role="button"]',
+      'div[aria-label="Post"][role="button"]'
     ];
 
     let posted = false;
-    for (const sel of postButtonSelectors) {
+    for (const sel of postSelectors) {
       try {
         await page.waitForSelector(sel, { timeout: 5000, visible: true });
         await page.click(sel);
@@ -228,11 +219,9 @@ async function main() {
     console.error("🚨 Error:", error.message);
     if (page) {
       try {
-        await page.screenshot({ path: path.join(ARTIFACTS_DIR, "autoupdate_error.png") });
+        await page.screenshot({ path: path.join(ARTIFACTS_DIR, "update_status_error.png") });
         console.log("📸 Screenshot error disimpan.");
-      } catch (e) {
-        console.error("❌ Gagal ambil screenshot:", e.message);
-      }
+      } catch {}
     }
     process.exit(1);
   } finally {
@@ -240,8 +229,4 @@ async function main() {
   }
 }
 
-if (require.main === module) {
-  main();
-}
-
-module.exports = main;
+main();
