@@ -130,7 +130,7 @@ async function main() {
       'div[role="button"][aria-label*="post"]',
       '[data-pagelet="ProfileComposer"] button',
       'div.x1lcm9me.x1yr5g0i.xds686m.x10l3doa.x1e0fer8.x1jx94hy.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m',
-      'div.xi81zsa.x1lkfr7t.xkjl1po.x1mzt3pk.xh8yej3.x13faqbe'
+      'div.xi81zsa.x1lkfr7t.xkjl1po.x1mzt3pk.xh8yej3.x13faqbe',
       'div.x1lliihq.x6ikm8r.x10wlt62.x1n2onr6'
     ];
 
