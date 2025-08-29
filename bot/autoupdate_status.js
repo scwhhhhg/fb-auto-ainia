@@ -21,12 +21,15 @@ const getRandomInterval = () =>
 // Load cookies
 async function loadCookiesFromEnv() {
   const cookieString = process.env.FACEBOOK_COOKIES;
-  if (!cookieString) throw new Error("FACEBOOK_COOKIES tidak ditemukan!");
+  if (!cookieString) throw new Error("FACEBOOK_COOKIES tidak ditemukan di environment!");
   return JSON.parse(cookieString).map(c => ({
     name: c.name,
     value: c.value,
     domain: c.domain,
-    path: c.path
+    path: c.path,
+    httpOnly: c.httpOnly,
+    secure: c.secure,
+    sameSite: ['Strict', 'Lax', 'None'].includes(c.sameSite) ? c.sameSite : 'Lax'
   }));
 }
 
@@ -51,15 +54,13 @@ async function generateStatusFromGemini(prompt, keys) {
         { contents: [{ parts: [{ text: prompt }] }] },
         { headers: { "Content-Type": "application/json" }, timeout: 10000 }
       );
-      const status = res.data.candidates[0].content.parts[0].text.trim();
-      console.log(`✅ Status dari API Key #${index + 1}`);
-      return status;
+      return res.data.candidates[0].content.parts[0].text.trim();
     } catch (error) {
       const msg = error.response?.data?.error?.message || error.message;
       console.error(`❌ Gagal dengan API Key #${index + 1}:`, msg);
     }
   }
-  throw new Error("Semua API Key gagal.");
+  throw new Error("Semua API Key Gemini gagal.");
 }
 
 // Simpan log status
@@ -72,7 +73,9 @@ async function logStatus(status) {
 
 // Main
 async function main() {
-  let browser;
+  let browser = null;
+  let page = null; // Deklarasikan di sini agar bisa diakses di catch
+
   console.log("🚀 Auto Update Status dimulai...");
 
   try {
@@ -86,30 +89,56 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
     });
 
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
     await page.setCookie(...cookies);
 
-    await page.goto("https://www.facebook.com", { waitUntil: "networkidle2" });
+    console.log("✅ Cookies dimuat. Membuka beranda...");
+    await page.goto("https://www.facebook.com/profile.php", { waitUntil: "networkidle2", timeout: 60000 });
     await delay(5000);
 
-    // Klik area "Apa yang sedang terjadi?"
-    const selector = 'div[role="button"][tabindex="0"]:has-text("Apa yang sedang terjadi?"), div[role="button"]:has-text("What\'s on your mind")';
-    await page.waitForSelector(selector, { timeout: 15000 });
-    await page.click(selector);
+    // Selector fleksibel untuk area posting
+    const selectors = [
+      'div[role="button"][tabindex="0"]:text("Apa yang Anda pikirkan sekarang?")',
+      'div[role="button"][tabindex="0"]:text("Apa yang Anda pikirkan, Ainia?")',
+      'div[role="button"][tabindex="0"]:text("What\'s on your mind")',
+      'div[role="button"][tabindex="0"]:text("What\'s on your mind, Ainia?")',
+      'div[role="button"][aria-label*="post"]:not([aria-hidden])',
+      'div[role="button"]:has(> span > span:text("Tulis"))',
+      '[data-pagelet="ProfileComposer"] button',
+      'div.x1lcm9me.x1yr5g0i.xds686m.x10l3doa.x1e0fer8.x1jx94hy.x1o1ewxj.x3x9cwd.x1e5q0jg.x13rtm0m'
+    ];
+
+    let selectedSelector = null;
+    for (const sel of selectors) {
+      try {
+        await page.waitForSelector(sel, { timeout: 5000 });
+        selectedSelector = sel;
+        break;
+      } catch (e) {
+        continue;
+      }
+    }
+
+    if (!selectedSelector) {
+      throw new Error("Tidak dapat menemukan area posting di halaman.");
+    }
+
+    console.log("✅ Area posting ditemukan. Mengklik...");
+    await page.click(selectedSelector);
     await delay(3000);
 
     // Generate status
     const status = await generateStatusFromGemini(config.gemini_prompt, keys);
 
     // Ketik status
-    const input = 'div[aria-label="Postingan Anda"], div[aria-label="Your post"]';
-    await page.waitForSelector(input, { timeout: 10000 });
-    await page.type(input, status, { delay: 50 });
+    const inputSelector = 'div[aria-label="Postingan Anda"], div[aria-label="Your post"], div[contenteditable="true"][role="textbox"]';
+    await page.waitForSelector(inputSelector, { timeout: 10000 });
+    await page.type(inputSelector, status, { delay: 50 });
 
     await delay(2000);
 
-    // Klik "Posting"
+    // Klik tombol Posting
     const postButton = 'div[aria-label="Posting"], div[aria-label="Post"]';
     await page.waitForSelector(postButton, { visible: true, timeout: 10000 });
     await page.click(postButton);
@@ -121,10 +150,18 @@ async function main() {
 
   } catch (error) {
     console.error("🚨 Error:", error.message);
-    await page?.screenshot({ path: path.join(ARTIFACTS_DIR, "autoupdate_error.png") });
+    // `page` mungkin null, jadi cek dulu
+    if (page) {
+      try {
+        await page.screenshot({ path: path.join(ARTIFACTS_DIR, "autoupdate_error.png") });
+        console.log("📸 Screenshot error disimpan.");
+      } catch (e) {
+        console.error("❌ Gagal ambil screenshot:", e.message);
+      }
+    }
     process.exit(1);
   } finally {
-    await browser?.close();
+    if (browser) await browser.close();
   }
 }
 
