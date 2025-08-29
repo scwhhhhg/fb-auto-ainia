@@ -1,5 +1,5 @@
 {
   "headless": true,
-  "targetURL": "https://www.facebook.com/reels/?source=seen_tab",
+  "targetURL": "https://www.facebook.com/profile.php?id=100088541283852&sk=reels_tab",
   "maxScrolls": 10
 }
