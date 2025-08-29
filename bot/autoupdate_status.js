@@ -105,7 +105,7 @@ async function main() {
     await page.setCookie(...cookies);
 
     console.log("✅ Cookies dimuat. Membuka beranda...");
-    await page.goto("https://www.facebook.com", { waitUntil: "networkidle2" });
+    await page.goto("https://www.facebook.com/profile.php", { waitUntil: "networkidle2" });
     await delay(7000);
 
     // Scroll ke atas
