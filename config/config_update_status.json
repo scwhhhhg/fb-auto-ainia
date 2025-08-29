@@ -1,6 +1,6 @@
 {
   "headless": true,
-  "minIntervalSeconds": 3600,
-  "maxIntervalSeconds": 7200,
-  "gemini_prompt": "Buatkan satu status media sosial yang menarik, positif, dan menginspirasi untuk komunitas bisnis online. Gaya bahasa santai tapi profesional. Panjang 1-2 kalimat. Gunakan 1-2 emoji. Jangan gunakan tanda kutip. Jangan tambahkan penjelasan."
+  "minIntervalSeconds": 60,
+  "maxIntervalSeconds": 180,
+  "gemini_prompt": "Buatkan satu status media sosial yang viral, menarik, dan menginspirasi untuk komunitas bisnis online. Gaya bahasa santai, 1-2 kalimat, 1-2 emoji. Jangan gunakan tanda kutip. Jangan tambahkan penjelasan."
 }
