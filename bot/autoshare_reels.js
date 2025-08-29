@@ -3,17 +3,21 @@ const puppeteer = require("puppeteer");
 const fs = require("fs").promises;
 const path = require("path");
 
+// Paths
 const TARGET_GROUPS_PATH = path.join(__dirname, "../target_groups.txt");
 const REELS_URLS_PATH = path.join(__dirname, "../reels_urls.txt");
 const CONFIG_PATH = path.join(__dirname, "../config/configshare_reels.json");
 const ARTIFACTS_DIR = path.join(__dirname, "../artifacts");
 
+// Load config
 const config = require("../config/configshare_reels.json");
 
+// Helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const getRandomInterval = () =>
   1000 * (Math.floor(Math.random() * (config.maxIntervalSeconds - config.minIntervalSeconds + 1)) + config.minIntervalSeconds);
 
+// Load cookies
 async function loadCookiesFromEnv() {
   const cookieString = process.env.FACEBOOK_COOKIES;
   if (!cookieString) throw new Error("FACEBOOK_COOKIES tidak ditemukan!");
@@ -25,6 +29,7 @@ async function loadCookiesFromEnv() {
   }));
 }
 
+// Load groups & reels
 async function loadTargetGroups() {
   const data = await fs.readFile(TARGET_GROUPS_PATH, "utf8");
   return data.split("\n").map(g => g.trim()).filter(Boolean);
@@ -35,9 +40,10 @@ async function loadReelsUrls() {
   return data.split("\n").map(u => u.trim()).filter(u => u.startsWith("https://"));
 }
 
+// Main
 async function main() {
   let browser;
-  console.log("📤 Memulai Auto Share Reels...");
+  console.log("📤 Auto Share Reels dimulai...");
 
   try {
     await fs.mkdir(ARTIFACTS_DIR, { recursive: true });
@@ -48,7 +54,7 @@ async function main() {
 
     browser = await puppeteer.launch({
       headless: config.headless,
-      args: ["--no-sandbox"]
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
     });
 
     const page = await browser.newPage();
@@ -94,10 +100,14 @@ async function main() {
 
   } catch (e) {
     console.error("❌ Error:", e.message);
-    await page.screenshot({ path: path.join(ARTIFACTS_DIR, "share_error.png") });
+    await page?.screenshot({ path: path.join(ARTIFACTS_DIR, "share_error.png") });
   } finally {
     await browser?.close();
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = main;
