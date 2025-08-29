@@ -1,0 +1,26 @@
+# .github/workflows/autoupdate_status.yml
+name: Auto Update Status
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # Setiap hari jam 8 pagi
+  workflow_call:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install puppeteer axios
+
+      - name: Run Auto Update Status
+        run: node bot/autoupdate_status.js
+        env:
+          FACEBOOK_COOKIES: ${{ secrets.FACEBOOK_COOKIES }}
