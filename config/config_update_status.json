@@ -2,5 +2,5 @@
   "headless": true,
   "minIntervalSeconds": 60,
   "maxIntervalSeconds": 180,
-  "gemini_prompt": "Buatkan satu status media sosial yang viral, menarik, dan menginspirasi. Gaya bahasa santai seperti wanita remaja, 1-2 kalimat, 1-2 emoji. Jangan gunakan tanda kutip. Jangan tambahkan penjelasan."
+  "gemini_prompt": "Buatkan satu status media sosial dengan gaya bahasa santai natural seperti wanita remaja tentang aktifitas, perasaan, atau keluh kesah kehidupan sehari-hari, sesuaikan dengan jam saat ini, 1-2 kalimat, 1-2 emoji. Jangan gunakan tanda kutip. Jangan tambahkan penjelasan."
 }
