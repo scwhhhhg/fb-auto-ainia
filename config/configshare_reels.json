@@ -4,7 +4,7 @@
   "maxIntervalSeconds": 180,
   "ai_caption": {
     "enabled": true,
-    "prompt": "Buat caption menarik dan viral untuk Reels ini: {CAPTION_VIDEO}. Gunakan gaya bahasa santai, 1-2 kalimat, 1-2 emoji. Jangan gunakan tanda kutip.",
+    "prompt": "Buat caption menarik dan viral untuk Reels ini: {CAPTION_VIDEO} gunakan gaya bahasa santai natural seperti wanita remaja, 1-2 kalimat, 1-2 emoji. Jangan gunakan tanda kutip.",
     "fallback_text": "Lihat video ini! 🚀",
     "static_text": ""
   }
