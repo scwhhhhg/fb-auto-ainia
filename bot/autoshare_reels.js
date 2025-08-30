@@ -2,18 +2,30 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs").promises;
 const path = require("path");
-const axios = require("axios");
 
 // Paths
 const TARGET_GROUPS_PATH = path.join(__dirname, "../target_groups.txt");
 const REELS_URLS_PATH = path.join(__dirname, "../reels_urls.txt");
+const ARTIFACTS_DIR = path.join(__dirname, "../artifacts");
 const GEMINI_KEYS_PATH = path.join(__dirname, "../gemini_keys.txt");
 const CONFIG_PATH = path.join(__dirname, "../config/configshare_reels.json");
-const ARTIFACTS_DIR = path.join(__dirname, "../artifacts");
-const LOG_CAPTION_PATH = path.join(__dirname, "../log_caption.txt");
 
-// Load config
-const config = require("../config/configshare_reels.json");
+// Load config (opsional)
+let config;
+try {
+  config = require("../config/configshare_reels.json");
+} catch (e) {
+  console.log("⚠️  configshare_reels.json tidak ditemukan, gunakan default.");
+  config = {
+    headless: true,
+    minIntervalSeconds: 60,
+    maxIntervalSeconds: 180,
+    ai_caption: {
+      enabled: false,
+      static_text: "Lihat video ini! 🚀"
+    }
+  };
+}
 
 // Helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -23,12 +35,15 @@ const getRandomInterval = () =>
 // Load cookies
 async function loadCookiesFromEnv() {
   const cookieString = process.env.FACEBOOK_COOKIES;
-  if (!cookieString) throw new Error("FACEBOOK_COOKIES tidak ditemukan!");
+  if (!cookieString) throw new Error("FACEBOOK_COOKIES tidak ditemukan di environment!");
   return JSON.parse(cookieString).map(c => ({
     name: c.name,
     value: c.value,
     domain: c.domain,
-    path: c.path
+    path: c.path,
+    httpOnly: !!c.httpOnly,
+    secure: !!c.secure,
+    sameSite: ['Strict', 'Lax', 'None'].includes(c.sameSite) ? c.sameSite : 'Lax'
   }));
 }
 
@@ -60,54 +75,45 @@ async function loadGeminiKeys() {
     const data = await fs.readFile(GEMINI_KEYS_PATH, "utf8");
     return data.split("\n").map(k => k.trim()).filter(Boolean);
   } catch (e) {
-    if (e.code === "ENOENT") throw new Error("File gemini_keys.txt tidak ditemukan!");
+    if (e.code === "ENOENT") return [];
     throw e;
   }
 }
 
 // Generate caption dari Gemini
 async function generateCaptionFromGemini(videoCaption = "") {
-  if (!config.ai_caption.enabled) return config.ai_caption.static_text || "";
+  if (!config.ai_caption?.enabled) return config.ai_caption?.static_text || "";
 
   const keys = await loadGeminiKeys();
-  const prompt = config.ai_caption.prompt
-    .replace("{CAPTION_VIDEO}", videoCaption.substring(0, 200))
-    .trim();
+  if (keys.length === 0) return "Lihat video ini! 🚀";
 
-  for (const [index, key] of keys.entries()) {
+  const prompt = config.ai_caption.prompt
+    ? config.ai_caption.prompt.replace("{CAPTION_VIDEO}", videoCaption.substring(0, 200))
+    : `Buat caption viral untuk Reels ini: ${videoCaption}. Gaya santai, 1-2 kalimat, 1 emoji.`;
+
+  for (const key of keys) {
     try {
-      const res = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`,
-        { contents: [{ parts: [{ text: prompt }] }] },
-        { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-      );
-      const caption = res.data.candidates[0].content.parts[0].text.trim();
-      console.log(`✅ Caption dari Gemini (API Key #${index + 1}): ${caption}`);
-      return caption;
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+      const data = await res.json();
+      return data.candidates[0].content.parts[0].text.trim();
     } catch (error) {
-      const msg = error.response?.data?.error?.message || error.message;
-      console.error(`❌ Gagal dengan API Key #${index + 1}:`, msg);
+      console.error("Gemini error:", error.message);
+      continue;
     }
   }
-  console.log("⚠️ Semua API Key gagal. Gunakan caption default.");
-  return config.ai_caption.fallback_text || "Lihat video ini! 🚀";
-}
-
-// Simpan log caption
-async function logCaption(reelUrl, caption) {
-  const timestamp = new Date().toISOString();
-  const logEntry = `[${timestamp}] ${reelUrl} | ${caption}`;
-  try {
-    await fs.appendFile(LOG_CAPTION_PATH, logEntry + "\n", "utf8");
-  } catch (e) {
-    console.error("⚠️ Gagal simpan log caption:", e.message);
-  }
+  return "Lihat video ini! 🚀";
 }
 
 // Main
 async function main() {
-  let browser;
-  console.log("📤 Memulai Auto Share Reels + Caption AI...");
+  let browser = null;
+  let page = null;
+
+  console.log("📤 Memulai Auto Share Reels...");
 
   try {
     await fs.mkdir(ARTIFACTS_DIR, { recursive: true });
@@ -124,7 +130,7 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
     });
 
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
     await page.setCookie(...cookies);
 
@@ -136,10 +142,7 @@ async function main() {
         await page.goto(reelUrl, { waitUntil: "networkidle2" });
         await delay(5000);
 
-        // Ambil caption video asli (untuk prompt AI)
-        const videoCaption = await page.$eval('div[data-ad-preview="message"]', el => el.textContent).catch(() => "");
-
-        // Klik "Bagikan"
+        // Klik tombol "Bagikan"
         const shareBtn = await page.$('div[aria-label="Bagikan"], div[aria-label="Share"]');
         if (shareBtn) await shareBtn.click();
         await delay(3000);
@@ -161,9 +164,44 @@ async function main() {
         if (option) await option.click();
         await delay(1000);
 
-        // Tambahkan caption dari AI
+        // Ambil caption video (untuk AI)
+        const videoCaption = await page.$eval('div[data-ad-preview="message"]', el => el.textContent).catch(() => "");
+
+        // Tambahkan caption
         const captionBox = await page.$('div[aria-label="Komentar Anda"], div[aria-label="Your comment"]');
         if (captionBox) {
           await captionBox.click();
           const caption = await generateCaptionFromGemini(videoCaption);
-         
+          await page.keyboard.type(caption, { delay: 100 });
+        }
+
+        // Klik "Posting"
+        const postBtn = await page.$('div[aria-label="Posting"], div[aria-label="Post"]');
+        if (postBtn) {
+          await postBtn.click();
+          console.log(`✅ Berhasil share ke: ${group}`);
+        }
+
+        await delay(getRandomInterval());
+
+      } catch (error) {
+        console.error(`❌ Gagal share ke ${group}:`, error.message);
+        if (page) {
+          try {
+            await page.screenshot({ path: path.join(ARTIFACTS_DIR, `share_error_${Date.now()}.png`) });
+          } catch {}
+        }
+      }
+    }
+
+    console.log("✅ Semua tugas selesai.");
+
+  } catch (error) {
+    console.error("🚨 Error:", error.message);
+    process.exit(1);
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+main();
