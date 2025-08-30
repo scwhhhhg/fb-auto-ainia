@@ -391,7 +391,7 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
       try {
         console.log("🔍 Strategi 3: XPath approach...");
         
-        // XPath for input using $x instead of waitForXPath
+        // XPath for input using evaluate instead of $x
         const inputXPaths = [
           '//input[@type="text"]',
           '//div[@contenteditable="true"]',
@@ -405,27 +405,33 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
           try {
             console.log(`   Mencoba XPath input: ${xpath}`);
             
-            // Use $x directly instead of waitForXPath
-            const inputElements = await page.$x(xpath);
-            if (inputElements.length > 0) {
-              const input = inputElements[0];
-              
-              // Check if element is visible
-              const isVisible = await input.boundingBox();
-              if (isVisible) {
-                await input.click();
-                await delay(1000);
+            // Use page.evaluate instead of $x
+            const clicked = await page.evaluate((xpath, groupName) => {
+              const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+              if (element && element.offsetParent !== null) { // Check if visible
+                element.click();
+                element.focus();
+                element.value = '';
+                element.textContent = '';
                 
-                await page.keyboard.down('Control');
-                await page.keyboard.press('KeyA');
-                await page.keyboard.up('Control');
-                await page.keyboard.press('Delete');
+                // Set value and trigger events
+                if (element.tagName === 'INPUT') {
+                  element.value = groupName;
+                  element.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                  element.textContent = groupName;
+                  element.dispatchEvent(new Event('input', { bubbles: true }));
+                }
                 
-                await page.keyboard.type(groupName, { delay: 150 });
-                console.log(`✅ XPath input success: ${groupName}`);
-                inputFound = true;
-                break;
+                return true;
               }
+              return false;
+            }, xpath, groupName);
+            
+            if (clicked) {
+              console.log(`✅ XPath input success: ${groupName}`);
+              inputFound = true;
+              break;
             }
           } catch (e) {
             console.log(`   XPath input ${xpath} gagal: ${e.message}`);
@@ -439,7 +445,7 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
 
         await delay(4000);
 
-        // XPath for dropdown options using $x
+        // XPath for dropdown options using evaluate
         const optionXPaths = [
           '//div[@role="listbox"]//div[@role="option"][1]',
           '//div[@role="option"][1]',
@@ -452,17 +458,19 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
           try {
             console.log(`   Mencoba XPath option: ${xpath}`);
             
-            const optionElements = await page.$x(xpath);
-            if (optionElements.length > 0) {
-              const option = optionElements[0];
-              
-              const isVisible = await option.boundingBox();
-              if (isVisible) {
-                await option.click();
-                console.log("✅ XPath option clicked");
-                optionFound = true;
-                break;
+            const clicked = await page.evaluate((xpath) => {
+              const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+              if (element && element.offsetParent !== null) { // Check if visible
+                element.click();
+                return true;
               }
+              return false;
+            }, xpath);
+            
+            if (clicked) {
+              console.log("✅ XPath option clicked");
+              optionFound = true;
+              break;
             }
           } catch (e) {
             console.log(`   XPath option ${xpath} gagal: ${e.message}`);
@@ -560,7 +568,7 @@ async function addCaption(page, caption, timeout = 8000) {
         }
       }
 
-      // Strategy 3: Try XPath for caption
+      // Strategy 3: XPath approach using evaluate instead of $x
       console.log("🔍 Strategi 3: XPath untuk caption...");
       const captionXPaths = [
         '//div[@contenteditable="true"]',
@@ -572,17 +580,28 @@ async function addCaption(page, caption, timeout = 8000) {
       for (const xpath of captionXPaths) {
         try {
           console.log(`   Mencoba XPath caption: ${xpath}`);
-          const elements = await page.$x(xpath);
-          if (elements.length > 0) {
-            const element = elements[0];
-            const isVisible = await element.boundingBox();
-            if (isVisible) {
-              await element.click();
-              await delay(1000);
-              await page.keyboard.type(caption, { delay: 80 });
-              console.log(`✅ Caption berhasil dengan XPath: ${xpath}`);
-              return true;
-            }
+          const element = await page.evaluate((xpath) => {
+            const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+            return result.singleNodeValue;
+          }, xpath);
+          
+          if (element) {
+            // Use page.evaluate to click and type
+            await page.evaluate((xpath, caption) => {
+              const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+              if (element) {
+                element.click();
+                element.focus();
+                element.textContent = caption;
+                // Trigger input event
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+              }
+              return false;
+            }, xpath, caption);
+            
+            console.log(`✅ Caption berhasil dengan XPath: ${xpath}`);
+            return true;
           }
         } catch (e) {
           console.log(`   XPath caption ${xpath} gagal: ${e.message}`);
@@ -673,7 +692,7 @@ async function clickPostButton(page, timeout = 15000) {
         }
       }
 
-      // Strategy 3: XPath approach
+      // Strategy 3: XPath approach using evaluate instead of $x
       console.log("🔍 Strategi 3: XPath untuk post button...");
       const postXPaths = [
         '//button[@type="submit"]',
@@ -688,16 +707,18 @@ async function clickPostButton(page, timeout = 15000) {
       for (const xpath of postXPaths) {
         try {
           console.log(`   Mencoba XPath post: ${xpath}`);
-          const elements = await page.$x(xpath);
-          if (elements.length > 0) {
-            for (const element of elements) {
-              const isVisible = await element.boundingBox();
-              if (isVisible) {
-                await element.click();
-                console.log(`✅ Post button clicked dengan XPath: ${xpath}`);
-                return true;
-              }
+          const clicked = await page.evaluate((xpath) => {
+            const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            if (element && element.offsetParent !== null) { // Check if visible
+              element.click();
+              return true;
             }
+            return false;
+          }, xpath);
+          
+          if (clicked) {
+            console.log(`✅ Post button clicked dengan XPath: ${xpath}`);
+            return true;
           }
         } catch (e) {
           console.log(`   XPath post ${xpath} gagal: ${e.message}`);
@@ -705,27 +726,96 @@ async function clickPostButton(page, timeout = 15000) {
         }
       }
 
-      // Strategy 4: Keyboard shortcut
+      // Strategy 4: Enhanced keyboard shortcut with verification
       console.log("🔍 Strategi 4: Keyboard shortcut untuk post...");
       try {
-        // Try Ctrl+Enter (common shortcut for posting)
+        // Take screenshot before keyboard action
+        const beforeKeyboardPath = path.join(ARTIFACTS_DIR, `before_keyboard_post_${Date.now()}.png`);
+        await page.screenshot({ path: beforeKeyboardPath, fullPage: false });
+        console.log(`📸 Screenshot sebelum keyboard post: ${beforeKeyboardPath}`);
+        
+        // Method 1: Try Ctrl+Enter (common Facebook shortcut)
         await page.keyboard.down('Control');
         await page.keyboard.press('Enter');
         await page.keyboard.up('Control');
-        console.log("✅ Post via keyboard shortcut (Ctrl+Enter)");
-        return true;
-      } catch (keyboardError) {
-        console.log("   Keyboard shortcut gagal:", keyboardError.message);
         
-        // Try just Enter
-        try {
-          await page.keyboard.press('Enter');
-          console.log("✅ Post via Enter key");
-          return true;
-        } catch (enterError) {
-          console.log("   Enter key gagal:", enterError.message);
+        // Wait a bit and check for changes
+        await delay(3000);
+        
+        // Check if post was successful by looking for success indicators
+        const postSuccess = await page.evaluate(() => {
+          // Look for success indicators in the page
+          const body = document.body.textContent.toLowerCase();
+          const indicators = [
+            'berhasil', 'success', 'posted', 'dibagikan', 'shared',
+            'publikasikan', 'dipublikasikan', 'telah dibagikan'
+          ];
+          
+          for (const indicator of indicators) {
+            if (body.includes(indicator)) {
+              return true;
+            }
+          }
+          
+          // Check if we're redirected or modal closed
+          const modals = document.querySelectorAll('[role="dialog"]');
+          const shareModals = document.querySelectorAll('div[aria-label*="Bagikan"]');
+          
+          // If modals are closed, it might indicate success
+          if (modals.length === 0 && shareModals.length === 0) {
+            return true;
+          }
+          
           return false;
+        });
+        
+        if (postSuccess) {
+          console.log("✅ Post via keyboard shortcut (Ctrl+Enter) - Verified success");
+          return true;
+        } else {
+          console.log("⚠️ Ctrl+Enter executed but success not verified, trying Enter...");
+          
+          // Method 2: Try just Enter
+          await page.keyboard.press('Enter');
+          await delay(2000);
+          
+          // Check again
+          const enterSuccess = await page.evaluate(() => {
+            const modals = document.querySelectorAll('[role="dialog"]');
+            return modals.length === 0; // Modal closed might indicate success
+          });
+          
+          if (enterSuccess) {
+            console.log("✅ Post via Enter key - Modal closed");
+            return true;
+          } else {
+            console.log("⚠️ Enter key tried but modal still present");
+            
+            // Method 3: Try Tab to navigate to Post button, then Enter
+            await page.keyboard.press('Tab');
+            await delay(500);
+            await page.keyboard.press('Tab');
+            await delay(500);
+            await page.keyboard.press('Enter');
+            await delay(2000);
+            
+            const tabSuccess = await page.evaluate(() => {
+              const modals = document.querySelectorAll('[role="dialog"]');
+              return modals.length === 0;
+            });
+            
+            if (tabSuccess) {
+              console.log("✅ Post via Tab navigation + Enter");
+              return true;
+            } else {
+              console.log("❌ All keyboard methods failed");
+              return false;
+            }
+          }
         }
+      } catch (keyboardError) {
+        console.log("❌ Keyboard shortcut gagal:", keyboardError.message);
+        return false;
       }
 
     } catch (fallbackError) {
@@ -898,27 +988,66 @@ async function main() {
         if (postClicked) {
           console.log(`✅ Berhasil share ke: ${group}`);
           
-          // Take screenshot after successful post
-          await delay(2000);
-          const afterPostPath = path.join(ARTIFACTS_DIR, `after_post_success_${Date.now()}_${groups.indexOf(group)}.png`);
+          // Enhanced verification after successful post
+          await delay(3000);
+          
+          // Take screenshot after post attempt
+          const afterPostPath = path.join(ARTIFACTS_DIR, `after_post_${Date.now()}_${groups.indexOf(group)}.png`);
           await page.screenshot({ path: afterPostPath, fullPage: false });
           console.log(`📸 Screenshot setelah post: ${afterPostPath}`);
-        } else {
-          console.log(`⚠️ Tombol 'Post' tidak ditemukan, mencoba verifikasi manual...`);
           
-          // Check if post was actually successful by looking for success indicators
-          try {
-            await delay(3000);
-            const pageContent = await page.content();
-            if (pageContent.includes('berhasil') || pageContent.includes('success') || 
-                pageContent.includes('posted') || pageContent.includes('dibagikan')) {
-              console.log(`✅ Post mungkin berhasil (terdeteksi dari content): ${group}`);
-            } else {
-              console.log(`❌ Post kemungkinan gagal: ${group}`);
+          // Enhanced post verification
+          const postVerified = await page.evaluate(() => {
+            const body = document.body;
+            const bodyText = body.textContent.toLowerCase();
+            
+            // Check for success indicators
+            const successIndicators = [
+              'berhasil dibagikan', 'successfully shared', 'posted', 
+              'dibagikan', 'shared to', 'publikasi berhasil',
+              'telah dibagikan ke', 'your post has been shared'
+            ];
+            
+            let hasSuccessIndicator = false;
+            for (const indicator of successIndicators) {
+              if (bodyText.includes(indicator)) {
+                hasSuccessIndicator = true;
+                break;
+              }
             }
-          } catch (e) {
-            console.log(`⚠️ Tidak dapat memverifikasi status post: ${group}`);
+            
+            // Check if share modal is closed (good sign)
+            const modals = body.querySelectorAll('[role="dialog"]');
+            const shareModals = body.querySelectorAll('div[aria-label*="Bagikan"], div[aria-label*="Share"]');
+            const isModalClosed = modals.length === 0 || shareModals.length === 0;
+            
+            // Check URL change (sometimes redirects after success)
+            const currentUrl = window.location.href;
+            const urlChanged = !currentUrl.includes('/reel/');
+            
+            return {
+              hasSuccessIndicator,
+              isModalClosed,
+              urlChanged,
+              verified: hasSuccessIndicator || (isModalClosed && !bodyText.includes('error'))
+            };
+          });
+          
+          console.log(`📊 Post verification: Success=${postVerified.hasSuccessIndicator}, Modal closed=${postVerified.isModalClosed}, URL changed=${postVerified.urlChanged}`);
+          
+          if (postVerified.verified) {
+            console.log(`🎉 Post berhasil diverifikasi: ${group}`);
+          } else {
+            console.log(`⚠️ Post status tidak pasti, tapi kemungkinan berhasil: ${group}`);
           }
+          
+        } else {
+          console.log(`❌ Semua metode posting gagal untuk: ${group}`);
+          
+          // Take final screenshot for debugging
+          const finalErrorPath = path.join(ARTIFACTS_DIR, `final_post_error_${Date.now()}_${groups.indexOf(group)}.png`);
+          await page.screenshot({ path: finalErrorPath, fullPage: true });
+          console.log(`📸 Screenshot error final: ${finalErrorPath}`);
         }
 
         const interval = getRandomInterval();
