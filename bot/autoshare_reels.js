@@ -391,7 +391,7 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
       try {
         console.log("🔍 Strategi 3: XPath approach...");
         
-        // XPath for input
+        // XPath for input using $x instead of waitForXPath
         const inputXPaths = [
           '//input[@type="text"]',
           '//div[@contenteditable="true"]',
@@ -404,22 +404,28 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
         for (const xpath of inputXPaths) {
           try {
             console.log(`   Mencoba XPath input: ${xpath}`);
-            await page.waitForXPath(xpath, { timeout: 3000, visible: true });
-            const [input] = await page.$x(xpath);
             
-            if (input) {
-              await input.click();
-              await delay(1000);
+            // Use $x directly instead of waitForXPath
+            const inputElements = await page.$x(xpath);
+            if (inputElements.length > 0) {
+              const input = inputElements[0];
               
-              await page.keyboard.down('Control');
-              await page.keyboard.press('KeyA');
-              await page.keyboard.up('Control');
-              await page.keyboard.press('Delete');
-              
-              await page.keyboard.type(groupName, { delay: 150 });
-              console.log(`✅ XPath input success: ${groupName}`);
-              inputFound = true;
-              break;
+              // Check if element is visible
+              const isVisible = await input.boundingBox();
+              if (isVisible) {
+                await input.click();
+                await delay(1000);
+                
+                await page.keyboard.down('Control');
+                await page.keyboard.press('KeyA');
+                await page.keyboard.up('Control');
+                await page.keyboard.press('Delete');
+                
+                await page.keyboard.type(groupName, { delay: 150 });
+                console.log(`✅ XPath input success: ${groupName}`);
+                inputFound = true;
+                break;
+              }
             }
           } catch (e) {
             console.log(`   XPath input ${xpath} gagal: ${e.message}`);
@@ -433,7 +439,7 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
 
         await delay(4000);
 
-        // XPath for dropdown options
+        // XPath for dropdown options using $x
         const optionXPaths = [
           '//div[@role="listbox"]//div[@role="option"][1]',
           '//div[@role="option"][1]',
@@ -445,14 +451,18 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
         for (const xpath of optionXPaths) {
           try {
             console.log(`   Mencoba XPath option: ${xpath}`);
-            await page.waitForXPath(xpath, { timeout: 5000, visible: true });
-            const [option] = await page.$x(xpath);
             
-            if (option) {
-              await option.click();
-              console.log("✅ XPath option clicked");
-              optionFound = true;
-              break;
+            const optionElements = await page.$x(xpath);
+            if (optionElements.length > 0) {
+              const option = optionElements[0];
+              
+              const isVisible = await option.boundingBox();
+              if (isVisible) {
+                await option.click();
+                console.log("✅ XPath option clicked");
+                optionFound = true;
+                break;
+              }
             }
           } catch (e) {
             console.log(`   XPath option ${xpath} gagal: ${e.message}`);
@@ -489,32 +499,109 @@ async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
   }
 }
 
-// Function to add caption
-async function addCaption(page, caption, timeout = 5000) {
+// Function to add caption with multiple strategies
+async function addCaption(page, caption, timeout = 8000) {
   try {
+    console.log("🔍 Strategi 1: Caption dengan Locator.race...");
     await puppeteer.Locator.race([
       page.locator('div[aria-label="Komentar Anda"]'),
       page.locator('div[aria-label="Your comment"]'),
       page.locator('div[contenteditable="true"][data-text*="Tulis"]'),
       page.locator('div[contenteditable="true"][data-text*="Write"]'),
       page.locator('textarea[placeholder*="comment"]'),
-      page.locator('div[contenteditable="true"]')
+      page.locator('div[contenteditable="true"]'),
+      page.locator('textarea[placeholder*="Tulis"]'),
+      page.locator('textarea[placeholder*="Write"]')
     ])
       .setTimeout(timeout)
       .click();
 
     await delay(1000);
     await page.keyboard.type(caption, { delay: 80 });
+    console.log("✅ Caption ditambahkan dengan Locator.race");
     return true;
   } catch (error) {
-    console.error("Error adding caption:", error.message);
-    return false;
+    console.log("⚠️ Locator.race gagal, mencoba strategi alternatif...");
+    
+    try {
+      console.log("🔍 Strategi 2: CSS selector tradisional untuk caption...");
+      
+      const captionSelectors = [
+        'div[contenteditable="true"]',
+        'textarea',
+        'div[aria-label*="comment"]',
+        'div[aria-label*="Comment"]',
+        'div[aria-label*="Komentar"]',
+        'div[role="textbox"]',
+        '[contenteditable="true"]',
+        'textarea[placeholder*="Tulis"]',
+        'textarea[placeholder*="Write"]'
+      ];
+
+      for (const selector of captionSelectors) {
+        try {
+          console.log(`   Mencoba caption selector: ${selector}`);
+          await page.waitForSelector(selector, { timeout: 2000, visible: true });
+          const element = await page.$(selector);
+          
+          if (element) {
+            const isVisible = await element.boundingBox();
+            if (isVisible) {
+              await element.click();
+              await delay(1000);
+              await page.keyboard.type(caption, { delay: 80 });
+              console.log(`✅ Caption berhasil dengan selector: ${selector}`);
+              return true;
+            }
+          }
+        } catch (e) {
+          console.log(`   Caption selector ${selector} gagal: ${e.message}`);
+          continue;
+        }
+      }
+
+      // Strategy 3: Try XPath for caption
+      console.log("🔍 Strategi 3: XPath untuk caption...");
+      const captionXPaths = [
+        '//div[@contenteditable="true"]',
+        '//textarea',
+        '//div[contains(@aria-label, "comment") or contains(@aria-label, "Comment")]',
+        '//div[@role="textbox"]'
+      ];
+
+      for (const xpath of captionXPaths) {
+        try {
+          console.log(`   Mencoba XPath caption: ${xpath}`);
+          const elements = await page.$x(xpath);
+          if (elements.length > 0) {
+            const element = elements[0];
+            const isVisible = await element.boundingBox();
+            if (isVisible) {
+              await element.click();
+              await delay(1000);
+              await page.keyboard.type(caption, { delay: 80 });
+              console.log(`✅ Caption berhasil dengan XPath: ${xpath}`);
+              return true;
+            }
+          }
+        } catch (e) {
+          console.log(`   XPath caption ${xpath} gagal: ${e.message}`);
+          continue;
+        }
+      }
+
+      throw new Error("Semua strategi caption gagal");
+    } catch (fallbackError) {
+      console.error("Error adding caption:", fallbackError.message);
+      return false;
+    }
   }
 }
 
-// Function to click post button (similar to recording pattern)
-async function clickPostButton(page, timeout = 10000) {
+// Function to click post button with multiple strategies
+async function clickPostButton(page, timeout = 15000) {
   try {
+    console.log("🔍 Strategi 1: Post button dengan Locator.race...");
     await puppeteer.Locator.race([
       page.locator('div.x1uvtmcs > div > div > div > div > div.x78zum5 div.x1l90r2v span > span'),
       page.locator('div[aria-label="Posting"]'),
@@ -523,14 +610,128 @@ async function clickPostButton(page, timeout = 10000) {
       page.locator('div[role="button"][aria-label*="Post"]'),
       page.locator('div[role="button"][aria-label*="Posting"]'),
       page.locator('::-p-text(Posting)'),
-      page.locator('::-p-text(Post)')
+      page.locator('::-p-text(Post)'),
+      page.locator('button:has-text("Posting")'),
+      page.locator('button:has-text("Post")')
     ])
       .setTimeout(timeout)
       .click();
+    console.log("✅ Post button clicked dengan Locator.race");
     return true;
   } catch (error) {
-    console.error("Error clicking post button:", error.message);
-    return false;
+    console.log("⚠️ Locator.race gagal, mencoba strategi alternatif...");
+    
+    try {
+      console.log("🔍 Strategi 2: CSS selector tradisional untuk post button...");
+      
+      const postSelectors = [
+        'button[type="submit"]',
+        'div[aria-label="Posting"]',
+        'div[aria-label="Post"]',
+        'button[aria-label="Posting"]',
+        'button[aria-label="Post"]',
+        'div[role="button"][aria-label*="Post"]',
+        'div[role="button"][aria-label*="Posting"]',
+        'button:contains("Posting")',
+        'button:contains("Post")',
+        'div[role="button"]:contains("Posting")',
+        'div[role="button"]:contains("Post")',
+        '[data-testid*="post"]',
+        '[data-testid*="submit"]'
+      ];
+
+      for (const selector of postSelectors) {
+        try {
+          console.log(`   Mencoba post selector: ${selector}`);
+          await page.waitForSelector(selector, { timeout: 3000, visible: true });
+          const element = await page.$(selector);
+          
+          if (element) {
+            const isVisible = await element.boundingBox();
+            if (isVisible) {
+              // Check if it's actually a post button
+              const ariaLabel = await element.evaluate(el => el.getAttribute('aria-label'));
+              const textContent = await element.evaluate(el => el.textContent);
+              
+              console.log(`   Element found - aria-label: "${ariaLabel}", text: "${textContent}"`);
+              
+              if (ariaLabel?.toLowerCase().includes('post') || 
+                  textContent?.toLowerCase().includes('post') ||
+                  ariaLabel?.toLowerCase().includes('posting') || 
+                  textContent?.toLowerCase().includes('posting') ||
+                  selector.includes('submit')) {
+                
+                await element.click();
+                console.log(`✅ Post button clicked dengan selector: ${selector}`);
+                return true;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`   Post selector ${selector} gagal: ${e.message}`);
+          continue;
+        }
+      }
+
+      // Strategy 3: XPath approach
+      console.log("🔍 Strategi 3: XPath untuk post button...");
+      const postXPaths = [
+        '//button[@type="submit"]',
+        '//div[@aria-label="Posting" or @aria-label="Post"][@role="button"]',
+        '//button[@aria-label="Posting" or @aria-label="Post"]',
+        '//div[@role="button" and (contains(text(), "Posting") or contains(text(), "Post"))]',
+        '//button[contains(text(), "Posting") or contains(text(), "Post")]',
+        '//div[contains(@class, "x1uvtmcs")]//span[contains(text(), "Post") or contains(text(), "Posting")]',
+        '//*[@role="button" and (contains(@aria-label, "Post") or contains(@aria-label, "Posting"))]'
+      ];
+
+      for (const xpath of postXPaths) {
+        try {
+          console.log(`   Mencoba XPath post: ${xpath}`);
+          const elements = await page.$x(xpath);
+          if (elements.length > 0) {
+            for (const element of elements) {
+              const isVisible = await element.boundingBox();
+              if (isVisible) {
+                await element.click();
+                console.log(`✅ Post button clicked dengan XPath: ${xpath}`);
+                return true;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`   XPath post ${xpath} gagal: ${e.message}`);
+          continue;
+        }
+      }
+
+      // Strategy 4: Keyboard shortcut
+      console.log("🔍 Strategi 4: Keyboard shortcut untuk post...");
+      try {
+        // Try Ctrl+Enter (common shortcut for posting)
+        await page.keyboard.down('Control');
+        await page.keyboard.press('Enter');
+        await page.keyboard.up('Control');
+        console.log("✅ Post via keyboard shortcut (Ctrl+Enter)");
+        return true;
+      } catch (keyboardError) {
+        console.log("   Keyboard shortcut gagal:", keyboardError.message);
+        
+        // Try just Enter
+        try {
+          await page.keyboard.press('Enter');
+          console.log("✅ Post via Enter key");
+          return true;
+        } catch (enterError) {
+          console.log("   Enter key gagal:", enterError.message);
+          return false;
+        }
+      }
+
+    } catch (fallbackError) {
+      console.error("Semua strategi post button gagal:", fallbackError.message);
+      return false;
+    }
   }
 }
 
@@ -660,7 +861,7 @@ async function main() {
         console.log(`✅ Grup dipilih: ${groupName}`);
         await delay(2000);
 
-        // Step 4: Add caption (optional)
+        // Step 4: Add caption with enhanced strategies
         console.log("🔍 Menambahkan caption...");
         let videoCaption = "";
         try {
@@ -670,21 +871,54 @@ async function main() {
         }
 
         const caption = await generateCaptionFromGemini(videoCaption);
-        const captionAdded = await addCaption(page, caption, 5000);
+        console.log(`📝 Generated caption: ${caption}`);
+        
+        // Take screenshot before adding caption
+        const beforeCaptionPath = path.join(ARTIFACTS_DIR, `before_caption_${Date.now()}_${groups.indexOf(group)}.png`);
+        await page.screenshot({ path: beforeCaptionPath, fullPage: true });
+        console.log(`📸 Screenshot sebelum caption: ${beforeCaptionPath}`);
+        
+        const captionAdded = await addCaption(page, caption, 8000);
         if (captionAdded) {
           console.log(`✅ Caption ditambahkan: ${caption}`);
         } else {
           console.log("⚠️ Area komentar tidak ditemukan, lanjut tanpa caption.");
         }
-        await delay(2000);
+        await delay(3000);
 
-        // Step 5: Click post button
+        // Step 5: Click post button with enhanced strategies  
         console.log("🔍 Mencari tombol 'Posting/Post'...");
-        const postClicked = await clickPostButton(page, timeout);
+        
+        // Take screenshot before clicking post
+        const beforePostPath = path.join(ARTIFACTS_DIR, `before_post_${Date.now()}_${groups.indexOf(group)}.png`);
+        await page.screenshot({ path: beforePostPath, fullPage: true });
+        console.log(`📸 Screenshot sebelum post: ${beforePostPath}`);
+        
+        const postClicked = await clickPostButton(page, 15000);
         if (postClicked) {
           console.log(`✅ Berhasil share ke: ${group}`);
+          
+          // Take screenshot after successful post
+          await delay(2000);
+          const afterPostPath = path.join(ARTIFACTS_DIR, `after_post_success_${Date.now()}_${groups.indexOf(group)}.png`);
+          await page.screenshot({ path: afterPostPath, fullPage: false });
+          console.log(`📸 Screenshot setelah post: ${afterPostPath}`);
         } else {
-          console.log(`⚠️ Tombol 'Post' tidak ditemukan, kemungkinan sudah ter-post: ${group}`);
+          console.log(`⚠️ Tombol 'Post' tidak ditemukan, mencoba verifikasi manual...`);
+          
+          // Check if post was actually successful by looking for success indicators
+          try {
+            await delay(3000);
+            const pageContent = await page.content();
+            if (pageContent.includes('berhasil') || pageContent.includes('success') || 
+                pageContent.includes('posted') || pageContent.includes('dibagikan')) {
+              console.log(`✅ Post mungkin berhasil (terdeteksi dari content): ${group}`);
+            } else {
+              console.log(`❌ Post kemungkinan gagal: ${group}`);
+            }
+          } catch (e) {
+            console.log(`⚠️ Tidak dapat memverifikasi status post: ${group}`);
+          }
         }
 
         const interval = getRandomInterval();
