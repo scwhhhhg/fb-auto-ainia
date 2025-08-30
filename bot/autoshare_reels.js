@@ -10,12 +10,12 @@ const ARTIFACTS_DIR = path.join(__dirname, "../artifacts");
 const GEMINI_KEYS_PATH = path.join(__dirname, "../gemini_keys.txt");
 const CONFIG_PATH = path.join(__dirname, "../config/configshare_reels.json");
 
-// Load config (opsional)
+// Load config
 let config;
 try {
   config = require("../config/configshare_reels.json");
 } catch (e) {
-  console.log("⚠️  configshare_reels.json tidak ditemukan, gunakan default.");
+  console.log("⚠️ configshare_reels.json tidak ditemukan, gunakan default.");
   config = {
     headless: true,
     minIntervalSeconds: 60,
@@ -144,13 +144,23 @@ async function main() {
 
         // Klik tombol "Bagikan"
         const shareBtn = await page.$('div[aria-label="Bagikan"], div[aria-label="Share"]');
-        if (shareBtn) await shareBtn.click();
-        await delay(3000);
+        if (shareBtn) {
+          await shareBtn.click();
+          await delay(3000);
+        } else {
+          throw new Error("Tombol 'Bagikan' tidak ditemukan.");
+        }
 
-        // Pilih "Bagikan ke Grup"
-        const shareToGroup = await page.$('span:text("Bagikan ke grup"), span:text("Share to Group")');
-        if (shareToGroup) await shareToGroup.click();
-        await delay(3000);
+        // Cari dan klik tombol "Bagikan ke grup" tanpa :text()
+        const shareToGroupXpath = "//span[text()='Bagikan ke grup'] | //span[text()='Share to Group']";
+        const [shareToGroup] = await page.$x(shareToGroupXpath);
+        if (shareToGroup) {
+          await shareToGroup.click();
+          console.log("✅ Tombol 'Bagikan ke grup' diklik.");
+          await delay(3000);
+        } else {
+          throw new Error("Tombol 'Bagikan ke grup' tidak ditemukan.");
+        }
 
         // Input nama grup
         const input = await page.$('input[type="text"], div[contenteditable="true"]');
