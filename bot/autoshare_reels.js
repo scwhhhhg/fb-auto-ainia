@@ -62,7 +62,21 @@ async function loadTargetGroups() {
 async function loadReelsUrls() {
   try {
     const data = await fs.readFile(REELS_URLS_PATH, "utf8");
-    return data.split("\n").map(u => u.trim()).filter(u => u.startsWith("https://www.facebook.com/reel/"));
+    return data.split("\n")
+      .map(u => u.trim())
+      .filter(u => u.startsWith("https://www.facebook.com/reel/"))
+      .map(u => {
+        // Clean URL - remove any extra parameters after pipe |
+        if (u.includes('|')) {
+          u = u.split('|')[0];
+        }
+        // Ensure URL ends properly
+        if (!u.match(/\/\d+\/?$/)) {
+          console.log(`⚠️ URL mungkin tidak valid: ${u}`);
+        }
+        return u;
+      })
+      .filter(Boolean);
   } catch (e) {
     if (e.code === "ENOENT") throw new Error("File reels_urls.txt tidak ditemukan!");
     throw e;
@@ -109,9 +123,10 @@ async function generateCaptionFromGemini(videoCaption = "") {
   return "Lihat video ini! 🚀";
 }
 
-// Function to click share button using Locator.race (from recording)
-async function clickShareButton(page, timeout = 10000) {
+// Function to click share button using multiple strategies
+async function clickShareButton(page, timeout = 15000) {
   try {
+    console.log("🔍 Strategi 1: Menggunakan Locator.race...");
     await puppeteer.Locator.race([
       page.locator('::-p-aria(Bagikan) >>>> ::-p-aria([role="generic"])'),
       page.locator('div.xuk3077 div:nth-of-type(4) i'),
@@ -124,8 +139,88 @@ async function clickShareButton(page, timeout = 10000) {
       .click();
     return true;
   } catch (error) {
-    console.error("Error clicking share button:", error.message);
-    return false;
+    console.log("⚠️ Strategi 1 gagal, mencoba strategi 2...");
+    
+    try {
+      console.log("🔍 Strategi 2: Menggunakan XPath dan CSS selector tradisional...");
+      
+      // Wait for page to be fully loaded
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+      
+      // Try multiple selectors with different approaches
+      const selectors = [
+        'div[aria-label="Bagikan"]',
+        'div[aria-label="Share"]',
+        'div[role="button"][aria-label*="Bagikan"]',
+        'div[role="button"][aria-label*="Share"]',
+        '[data-testid="post_share_button"]',
+        'div[data-testid*="share"]',
+        // More generic selectors
+        'div.x1i10hfl[role="button"]', // Common Facebook button class
+        'div[role="button"]:has(i)', // Button with icon
+      ];
+      
+      for (let i = 0; i < selectors.length; i++) {
+        try {
+          console.log(`   Mencoba selector ${i+1}: ${selectors[i]}`);
+          await page.waitForSelector(selectors[i], { timeout: 3000, visible: true });
+          const element = await page.$(selectors[i]);
+          
+          if (element) {
+            // Check if element is actually a share button by checking nearby text or aria-label
+            const ariaLabel = await element.evaluate(el => el.getAttribute('aria-label'));
+            const textContent = await element.evaluate(el => el.textContent);
+            
+            console.log(`   Element found - aria-label: "${ariaLabel}", text: "${textContent}"`);
+            
+            // If it looks like a share button, click it
+            if (ariaLabel?.toLowerCase().includes('bagikan') || 
+                ariaLabel?.toLowerCase().includes('share') ||
+                textContent?.toLowerCase().includes('bagikan') ||
+                textContent?.toLowerCase().includes('share')) {
+              
+              await element.click();
+              console.log("✅ Share button clicked successfully!");
+              return true;
+            }
+          }
+        } catch (e) {
+          console.log(`   Selector ${i+1} gagal: ${e.message}`);
+          continue;
+        }
+      }
+      
+      // Strategy 3: Try XPath approach
+      console.log("🔍 Strategi 3: Menggunakan XPath...");
+      const xpaths = [
+        '//div[@role="button" and (@aria-label="Bagikan" or @aria-label="Share")]',
+        '//div[@role="button" and (contains(@aria-label, "Bagikan") or contains(@aria-label, "Share"))]',
+        '//div[@role="button"]//i[contains(@class, "share") or contains(@class, "bagikan")]',
+        '//div[contains(text(), "Bagikan") or contains(text(), "Share")][@role="button"]'
+      ];
+      
+      for (let i = 0; i < xpaths.length; i++) {
+        try {
+          console.log(`   Mencoba XPath ${i+1}: ${xpaths[i]}`);
+          await page.waitForXPath(xpaths[i], { timeout: 3000, visible: true });
+          const [element] = await page.$x(xpaths[i]);
+          
+          if (element) {
+            await element.click();
+            console.log("✅ Share button clicked via XPath!");
+            return true;
+          }
+        } catch (e) {
+          console.log(`   XPath ${i+1} gagal: ${e.message}`);
+          continue;
+        }
+      }
+      
+      throw new Error("Semua strategi gagal");
+    } catch (fallbackError) {
+      console.error("Error in fallback strategies:", fallbackError.message);
+      return false;
+    }
   }
 }
 
@@ -150,44 +245,247 @@ async function clickShareToGroupButton(page, timeout = 10000) {
   }
 }
 
-// Function to select group from dropdown
-async function selectGroupFromDropdown(page, groupName, timeout = 10000) {
+// Function to select group from dropdown with multiple strategies
+async function selectGroupFromDropdown(page, groupName, timeout = 15000) {
   try {
-    // Wait for and click the input field
+    console.log("🔍 Strategi 1: Mencari input field dengan Locator.race...");
+    
+    // Strategy 1: Use Locator.race for input field
     await puppeteer.Locator.race([
       page.locator('input[type="text"][placeholder*="grup"]'),
       page.locator('input[type="text"][placeholder*="group"]'),
+      page.locator('input[type="text"][placeholder*="Cari"]'),
+      page.locator('input[type="text"][placeholder*="Search"]'),
       page.locator('input[type="text"]'),
-      page.locator('div[contenteditable="true"]')
+      page.locator('div[contenteditable="true"]'),
+      page.locator('[role="textbox"]'),
+      page.locator('[role="combobox"]')
     ])
       .setTimeout(timeout)
       .click();
 
-    await delay(1000);
+    await delay(1500);
 
-    // Clear existing text and type group name
+    // Clear and type group name
     await page.keyboard.down('Control');
     await page.keyboard.press('KeyA');
     await page.keyboard.up('Control');
     await page.keyboard.press('Delete');
     
-    await page.keyboard.type(groupName, { delay: 100 });
-    await delay(2000);
+    await page.keyboard.type(groupName, { delay: 150 });
+    console.log(`✅ Berhasil mengetik: ${groupName}`);
+    await delay(3000);
 
-    // Select first option from dropdown (similar to recording pattern)
-    await puppeteer.Locator.race([
-      page.locator('div[role="listbox"] div[role="option"]:first-child'),
-      page.locator('div[role="option"]:first-child'),
-      page.locator('ul[role="listbox"] li:first-child'),
-      page.locator('[role="option"]').setEnsureElementIsInTheViewport(false).nth(0)
-    ])
-      .setTimeout(5000)
-      .click();
+    // Strategy 1: Select from dropdown using Locator.race
+    try {
+      await puppeteer.Locator.race([
+        page.locator('div[role="listbox"] div[role="option"]:first-child'),
+        page.locator('div[role="option"]:first-child'),
+        page.locator('ul[role="listbox"] li:first-child'),
+        page.locator('[role="option"]').nth(0),
+        page.locator('div[data-testid*="typeahead"] div:first-child')
+      ])
+        .setTimeout(8000)
+        .click();
+      
+      console.log("✅ Grup dipilih dengan Locator.race");
+      return true;
+    } catch (locatorError) {
+      console.log("⚠️ Locator.race gagal, mencoba strategi alternatif...");
+      throw locatorError;
+    }
 
-    return true;
   } catch (error) {
-    console.error("Error selecting group:", error.message);
-    return false;
+    console.log("⚠️ Strategi 1 gagal, mencoba strategi 2...");
+    
+    try {
+      console.log("🔍 Strategi 2: CSS selector tradisional...");
+      
+      // Find input field with traditional selectors
+      const inputSelectors = [
+        'input[type="text"]',
+        'div[contenteditable="true"]',
+        '[role="textbox"]',
+        '[role="combobox"]',
+        'input[placeholder*="grup"]',
+        'input[placeholder*="group"]',
+        'input[placeholder*="Cari"]',
+        'input[placeholder*="Search"]'
+      ];
+
+      let inputFound = false;
+      for (const selector of inputSelectors) {
+        try {
+          console.log(`   Mencoba input selector: ${selector}`);
+          await page.waitForSelector(selector, { timeout: 3000, visible: true });
+          const input = await page.$(selector);
+          
+          if (input) {
+            await input.click();
+            await delay(1000);
+            
+            // Clear and type
+            await page.keyboard.down('Control');
+            await page.keyboard.press('KeyA');
+            await page.keyboard.up('Control');
+            await page.keyboard.press('Delete');
+            
+            await page.keyboard.type(groupName, { delay: 150 });
+            console.log(`✅ Input found and typed: ${groupName}`);
+            inputFound = true;
+            break;
+          }
+        } catch (e) {
+          console.log(`   Input selector ${selector} gagal: ${e.message}`);
+          continue;
+        }
+      }
+
+      if (!inputFound) {
+        throw new Error("Input field tidak ditemukan dengan semua selector");
+      }
+
+      await delay(4000);
+
+      // Find and click dropdown option
+      const optionSelectors = [
+        'div[role="listbox"] div[role="option"]',
+        'div[role="option"]',
+        'ul[role="listbox"] li',
+        'div[data-testid*="typeahead"] div',
+        'li[role="option"]',
+        '.uiTypeaheadView li',
+        '[role="listbox"] [role="option"]'
+      ];
+
+      let optionFound = false;
+      for (const selector of optionSelectors) {
+        try {
+          console.log(`   Mencari dropdown dengan: ${selector}`);
+          await page.waitForSelector(selector, { timeout: 5000, visible: true });
+          const options = await page.$(selector);
+          
+          if (options.length > 0) {
+            console.log(`   Ditemukan ${options.length} opsi`);
+            // Click first option
+            await options[0].click();
+            console.log("✅ Opsi pertama diklik");
+            optionFound = true;
+            break;
+          }
+        } catch (e) {
+          console.log(`   Dropdown selector ${selector} gagal: ${e.message}`);
+          continue;
+        }
+      }
+
+      if (!optionFound) {
+        throw new Error("Dropdown option tidak ditemukan");
+      }
+
+      return true;
+
+    } catch (fallbackError) {
+      console.log("⚠️ Strategi 2 gagal, mencoba strategi 3...");
+      
+      try {
+        console.log("🔍 Strategi 3: XPath approach...");
+        
+        // XPath for input
+        const inputXPaths = [
+          '//input[@type="text"]',
+          '//div[@contenteditable="true"]',
+          '//input[contains(@placeholder, "grup") or contains(@placeholder, "group")]',
+          '//*[@role="textbox"]',
+          '//*[@role="combobox"]'
+        ];
+
+        let inputFound = false;
+        for (const xpath of inputXPaths) {
+          try {
+            console.log(`   Mencoba XPath input: ${xpath}`);
+            await page.waitForXPath(xpath, { timeout: 3000, visible: true });
+            const [input] = await page.$x(xpath);
+            
+            if (input) {
+              await input.click();
+              await delay(1000);
+              
+              await page.keyboard.down('Control');
+              await page.keyboard.press('KeyA');
+              await page.keyboard.up('Control');
+              await page.keyboard.press('Delete');
+              
+              await page.keyboard.type(groupName, { delay: 150 });
+              console.log(`✅ XPath input success: ${groupName}`);
+              inputFound = true;
+              break;
+            }
+          } catch (e) {
+            console.log(`   XPath input ${xpath} gagal: ${e.message}`);
+            continue;
+          }
+        }
+
+        if (!inputFound) {
+          throw new Error("Input field tidak ditemukan dengan XPath");
+        }
+
+        await delay(4000);
+
+        // XPath for dropdown options
+        const optionXPaths = [
+          '//div[@role="listbox"]//div[@role="option"][1]',
+          '//div[@role="option"][1]',
+          '//ul[@role="listbox"]//li[1]',
+          '//*[@role="option"][1]'
+        ];
+
+        let optionFound = false;
+        for (const xpath of optionXPaths) {
+          try {
+            console.log(`   Mencoba XPath option: ${xpath}`);
+            await page.waitForXPath(xpath, { timeout: 5000, visible: true });
+            const [option] = await page.$x(xpath);
+            
+            if (option) {
+              await option.click();
+              console.log("✅ XPath option clicked");
+              optionFound = true;
+              break;
+            }
+          } catch (e) {
+            console.log(`   XPath option ${xpath} gagal: ${e.message}`);
+            continue;
+          }
+        }
+
+        if (!optionFound) {
+          throw new Error("Dropdown option tidak ditemukan dengan XPath");
+        }
+
+        return true;
+
+      } catch (xpathError) {
+        console.error("Semua strategi gagal:", xpathError.message);
+        
+        // Final attempt: try keyboard navigation
+        console.log("🔍 Strategi 4: Keyboard navigation...");
+        try {
+          // Press Tab to navigate, then Enter to select
+          await page.keyboard.press('Tab');
+          await delay(1000);
+          await page.keyboard.press('ArrowDown');
+          await delay(1000);
+          await page.keyboard.press('Enter');
+          console.log("✅ Keyboard navigation success");
+          return true;
+        } catch (keyboardError) {
+          console.error("Keyboard navigation juga gagal:", keyboardError.message);
+          return false;
+        }
+      }
+    }
   }
 }
 
@@ -272,17 +570,55 @@ async function main() {
       console.log(`🎬 Reels URL: ${reelUrl}`);
 
       try {
-        // Navigate to reel (similar to recording)
-        await page.goto('https://www.facebook.com/');
+        // Navigate to reel with better error handling
+        console.log("🌐 Navigating to Facebook...");
+        await page.goto('https://www.facebook.com/', { waitUntil: 'networkidle2', timeout: 30000 });
         await delay(3000);
-        await page.goto(reelUrl);
-        await delay(7000);
+        
+        console.log(`🌐 Navigating to Reels: ${reelUrl}`);
+        await page.goto(reelUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        await delay(8000);
+        
+        // Check if page loaded correctly
+        const currentUrl = page.url();
+        console.log(`📍 Current URL: ${currentUrl}`);
+        
+        // Check if we're on the correct page
+        if (!currentUrl.includes('facebook.com/reel/') && !currentUrl.includes('facebook.com')) {
+          throw new Error(`Halaman tidak dimuat dengan benar. Current URL: ${currentUrl}`);
+        }
+        
+        // Check if reel actually exists and is accessible
+        try {
+          await page.waitForSelector('video, div[role="img"]', { timeout: 10000 });
+          console.log("✅ Reels content detected");
+        } catch (e) {
+          console.log("⚠️ Reels content mungkin tidak tersedia, lanjut mencoba...");
+        }
 
-        // Step 1: Click share button
+        // Step 1: Click share button with debug info
         console.log("🔍 Mencari tombol 'Bagikan/Share'...");
-        const shareClicked = await clickShareButton(page, timeout);
+        
+        // Take screenshot before trying to find share button
+        const beforeSharePath = path.join(ARTIFACTS_DIR, `before_share_${Date.now()}_${groups.indexOf(group)}.png`);
+        await page.screenshot({ path: beforeSharePath, fullPage: false });
+        console.log(`📸 Screenshot sebelum share: ${beforeSharePath}`);
+        
+        const shareClicked = await clickShareButton(page, 15000);
         if (!shareClicked) {
-          throw new Error("Tombol 'Bagikan/Share' tidak ditemukan.");
+          // Take screenshot on failure
+          const failurePath = path.join(ARTIFACTS_DIR, `share_button_not_found_${Date.now()}_${groups.indexOf(group)}.png`);
+          await page.screenshot({ path: failurePath, fullPage: true });
+          console.log(`📸 Screenshot kegagalan: ${failurePath}`);
+          
+          // Try to get page content for debugging
+          const pageTitle = await page.title();
+          const pageContent = await page.content();
+          console.log(`📄 Page title: ${pageTitle}`);
+          console.log(`📄 Page contains "share": ${pageContent.toLowerCase().includes('share')}`);
+          console.log(`📄 Page contains "bagikan": ${pageContent.toLowerCase().includes('bagikan')}`);
+          
+          throw new Error("Tombol 'Bagikan/Share' tidak ditemukan setelah semua strategi dicoba.");
         }
         console.log("✅ Tombol 'Bagikan/Share' diklik.");
         await delay(3000);
@@ -296,12 +632,30 @@ async function main() {
         console.log("✅ Tombol 'Bagikan ke grup' diklik.");
         await delay(4000);
 
-        // Step 3: Select group
+        // Step 3: Select group with enhanced debugging
         console.log("🔍 Memilih grup dari dropdown...");
         const groupName = group.split("/").pop();
-        const groupSelected = await selectGroupFromDropdown(page, groupName, timeout);
+        console.log(`🎯 Target group name: ${groupName}`);
+        
+        // Take screenshot before group selection
+        const beforeGroupPath = path.join(ARTIFACTS_DIR, `before_group_selection_${Date.now()}_${groups.indexOf(group)}.png`);
+        await page.screenshot({ path: beforeGroupPath, fullPage: true });
+        console.log(`📸 Screenshot sebelum pilih grup: ${beforeGroupPath}`);
+        
+        const groupSelected = await selectGroupFromDropdown(page, groupName, 15000);
         if (!groupSelected) {
-          throw new Error("Gagal memilih grup dari dropdown.");
+          // Take screenshot on failure
+          const groupFailurePath = path.join(ARTIFACTS_DIR, `group_selection_failed_${Date.now()}_${groups.indexOf(group)}.png`);
+          await page.screenshot({ path: groupFailurePath, fullPage: true });
+          console.log(`📸 Screenshot kegagalan group selection: ${groupFailurePath}`);
+          
+          // Try to get page content for debugging
+          const pageContent = await page.content();
+          console.log(`📄 Page contains input: ${pageContent.toLowerCase().includes('input')}`);
+          console.log(`📄 Page contains textbox: ${pageContent.toLowerCase().includes('textbox')}`);
+          console.log(`📄 Page contains combobox: ${pageContent.toLowerCase().includes('combobox')}`);
+          
+          throw new Error("Gagal memilih grup dari dropdown setelah semua strategi dicoba.");
         }
         console.log(`✅ Grup dipilih: ${groupName}`);
         await delay(2000);
