@@ -1,5 +1,5 @@
 // bot/autoshare_reels.js
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer"); // v23.0.0 or later
 const fs = require("fs").promises;
 const path = require("path");
 
@@ -109,40 +109,131 @@ async function generateCaptionFromGemini(videoCaption = "") {
   return "Lihat video ini! 🚀";
 }
 
-// Function to wait for and click element with multiple selectors
-async function waitAndClick(page, selectors, timeout = 10000) {
-  for (const selector of selectors) {
-    try {
-      await page.waitForSelector(selector, { timeout: timeout / selectors.length, visible: true });
-      const element = await page.$(selector);
-      if (element) {
-        await element.click();
-        return true;
-      }
-    } catch (e) {
-      // Continue to next selector
-    }
+// Function to click share button using Locator.race (from recording)
+async function clickShareButton(page, timeout = 10000) {
+  try {
+    await puppeteer.Locator.race([
+      page.locator('::-p-aria(Bagikan) >>>> ::-p-aria([role="generic"])'),
+      page.locator('div.xuk3077 div:nth-of-type(4) i'),
+      page.locator('div[aria-label="Bagikan"]'),
+      page.locator('div[aria-label="Share"]'),
+      page.locator('::-p-aria(Share) >>>> ::-p-aria([role="generic"])'),
+      page.locator('[data-testid="post_share_button"]')
+    ])
+      .setTimeout(timeout)
+      .click();
+    return true;
+  } catch (error) {
+    console.error("Error clicking share button:", error.message);
+    return false;
   }
-  return false;
 }
 
-// Function to wait for XPath with multiple options
-async function waitAndClickXPath(page, xpaths, timeout = 10000) {
-  const timeoutPerXpath = timeout / xpaths.length;
-  
-  for (const xpath of xpaths) {
-    try {
-      await page.waitForXPath(xpath, { timeout: timeoutPerXpath, visible: true });
-      const [element] = await page.$x(xpath);
-      if (element) {
-        await element.click();
-        return true;
-      }
-    } catch (e) {
-      // Continue to next xpath
-    }
+// Function to click "Share to Group" button
+async function clickShareToGroupButton(page, timeout = 10000) {
+  try {
+    await puppeteer.Locator.race([
+      page.locator('div:nth-of-type(4) div:nth-of-type(5) i'),
+      page.locator('::-p-text(Bagikan ke grup)'),
+      page.locator('::-p-text(Share to Group)'),
+      page.locator('div[role="button"]:has-text("Bagikan ke grup")'),
+      page.locator('div[role="button"]:has-text("Share to Group")'),
+      page.locator('span:has-text("Bagikan ke grup")'),
+      page.locator('span:has-text("Share to Group")')
+    ])
+      .setTimeout(timeout)
+      .click();
+    return true;
+  } catch (error) {
+    console.error("Error clicking share to group button:", error.message);
+    return false;
   }
-  return false;
+}
+
+// Function to select group from dropdown
+async function selectGroupFromDropdown(page, groupName, timeout = 10000) {
+  try {
+    // Wait for and click the input field
+    await puppeteer.Locator.race([
+      page.locator('input[type="text"][placeholder*="grup"]'),
+      page.locator('input[type="text"][placeholder*="group"]'),
+      page.locator('input[type="text"]'),
+      page.locator('div[contenteditable="true"]')
+    ])
+      .setTimeout(timeout)
+      .click();
+
+    await delay(1000);
+
+    // Clear existing text and type group name
+    await page.keyboard.down('Control');
+    await page.keyboard.press('KeyA');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Delete');
+    
+    await page.keyboard.type(groupName, { delay: 100 });
+    await delay(2000);
+
+    // Select first option from dropdown (similar to recording pattern)
+    await puppeteer.Locator.race([
+      page.locator('div[role="listbox"] div[role="option"]:first-child'),
+      page.locator('div[role="option"]:first-child'),
+      page.locator('ul[role="listbox"] li:first-child'),
+      page.locator('[role="option"]').setEnsureElementIsInTheViewport(false).nth(0)
+    ])
+      .setTimeout(5000)
+      .click();
+
+    return true;
+  } catch (error) {
+    console.error("Error selecting group:", error.message);
+    return false;
+  }
+}
+
+// Function to add caption
+async function addCaption(page, caption, timeout = 5000) {
+  try {
+    await puppeteer.Locator.race([
+      page.locator('div[aria-label="Komentar Anda"]'),
+      page.locator('div[aria-label="Your comment"]'),
+      page.locator('div[contenteditable="true"][data-text*="Tulis"]'),
+      page.locator('div[contenteditable="true"][data-text*="Write"]'),
+      page.locator('textarea[placeholder*="comment"]'),
+      page.locator('div[contenteditable="true"]')
+    ])
+      .setTimeout(timeout)
+      .click();
+
+    await delay(1000);
+    await page.keyboard.type(caption, { delay: 80 });
+    return true;
+  } catch (error) {
+    console.error("Error adding caption:", error.message);
+    return false;
+  }
+}
+
+// Function to click post button (similar to recording pattern)
+async function clickPostButton(page, timeout = 10000) {
+  try {
+    await puppeteer.Locator.race([
+      page.locator('div.x1uvtmcs > div > div > div > div > div.x78zum5 div.x1l90r2v span > span'),
+      page.locator('div[aria-label="Posting"]'),
+      page.locator('div[aria-label="Post"]'),
+      page.locator('button[type="submit"]'),
+      page.locator('div[role="button"][aria-label*="Post"]'),
+      page.locator('div[role="button"][aria-label*="Posting"]'),
+      page.locator('::-p-text(Posting)'),
+      page.locator('::-p-text(Post)')
+    ])
+      .setTimeout(timeout)
+      .click();
+    return true;
+  } catch (error) {
+    console.error("Error clicking post button:", error.message);
+    return false;
+  }
 }
 
 // Main
@@ -168,7 +259,11 @@ async function main() {
     });
 
     page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
+    const timeout = 10000;
+    page.setDefaultTimeout(timeout);
+
+    // Set viewport similar to recording
+    await page.setViewport({ width: 966, height: 703 });
     await page.setCookie(...cookies);
 
     for (const group of groups) {
@@ -177,132 +272,42 @@ async function main() {
       console.log(`🎬 Reels URL: ${reelUrl}`);
 
       try {
-        await page.goto(reelUrl, { waitUntil: "networkidle2" });
+        // Navigate to reel (similar to recording)
+        await page.goto('https://www.facebook.com/');
+        await delay(3000);
+        await page.goto(reelUrl);
         await delay(7000);
 
-        // Multiple selectors untuk tombol "Bagikan/Share"
-        const shareSelectors = [
-          'div[aria-label="Bagikan"]',
-          'div[aria-label="Share"]',
-          'div[role="button"][aria-label*="Bagikan"]',
-          'div[role="button"][aria-label*="Share"]',
-          '[data-testid="post_share_button"]',
-          'div[role="button"]:has-text("Bagikan")',
-          'div[role="button"]:has-text("Share")'
-        ];
-
-        const shareXPaths = [
-          '//div[@role="button" and (@aria-label="Bagikan" or @aria-label="Share")]',
-          '//div[@role="button" and (contains(text(), "Bagikan") or contains(text(), "Share"))]',
-          '//span[text()="Bagikan"]/parent::div[@role="button"]',
-          '//span[text()="Share"]/parent::div[@role="button"]',
-          '//div[contains(@aria-label, "Bagikan") or contains(@aria-label, "Share")][@role="button"]'
-        ];
-
+        // Step 1: Click share button
         console.log("🔍 Mencari tombol 'Bagikan/Share'...");
-        
-        let shareClicked = false;
-        
-        // Try CSS selectors first
-        shareClicked = await waitAndClick(page, shareSelectors, 8000);
-        
-        // If CSS selectors fail, try XPath
+        const shareClicked = await clickShareButton(page, timeout);
         if (!shareClicked) {
-          shareClicked = await waitAndClickXPath(page, shareXPaths, 8000);
+          throw new Error("Tombol 'Bagikan/Share' tidak ditemukan.");
         }
-
-        if (!shareClicked) {
-          throw new Error("Tombol 'Bagikan/Share' tidak ditemukan setelah mencoba semua selector.");
-        }
-
         console.log("✅ Tombol 'Bagikan/Share' diklik.");
-        await delay(4000);
+        await delay(3000);
 
-        // Multiple selectors untuk "Bagikan ke grup"
-        const shareToGroupXPaths = [
-          '//span[text()="Bagikan ke grup"]/ancestor::div[@role="button"]',
-          '//span[text()="Share to Group"]/ancestor::div[@role="button"]',
-          '//div[@role="button" and contains(., "Bagikan ke grup")]',
-          '//div[@role="button" and contains(., "Share to Group")]',
-          '//div[contains(text(), "Bagikan ke grup")][@role="button"]',
-          '//div[contains(text(), "Share to Group")][@role="button"]'
-        ];
-
+        // Step 2: Click "Share to Group"
         console.log("🔍 Mencari tombol 'Bagikan ke grup'...");
-        const shareToGroupClicked = await waitAndClickXPath(page, shareToGroupXPaths, 10000);
-
+        const shareToGroupClicked = await clickShareToGroupButton(page, timeout);
         if (!shareToGroupClicked) {
           throw new Error("Tombol 'Bagikan ke grup' tidak ditemukan.");
         }
-
         console.log("✅ Tombol 'Bagikan ke grup' diklik.");
         await delay(4000);
 
-        // Input nama grup dengan multiple selectors
-        const inputSelectors = [
-          'input[type="text"][placeholder*="grup"]',
-          'input[type="text"][placeholder*="group"]',
-          'div[contenteditable="true"][data-text*="grup"]',
-          'div[contenteditable="true"][data-text*="group"]',
-          'input[type="text"]',
-          'div[contenteditable="true"]'
-        ];
-
-        console.log("🔍 Mencari input field untuk grup...");
-        let inputFound = false;
-        
-        for (const selector of inputSelectors) {
-          try {
-            await page.waitForSelector(selector, { timeout: 2000, visible: true });
-            const input = await page.$(selector);
-            if (input) {
-              await input.click();
-              await delay(1000);
-              
-              // Clear existing text
-              await page.keyboard.down('Control');
-              await page.keyboard.press('KeyA');
-              await page.keyboard.up('Control');
-              await page.keyboard.press('Delete');
-              
-              // Type group name (extract from URL)
-              const groupName = group.split("/").pop();
-              await page.keyboard.type(groupName, { delay: 100 });
-              console.log(`✅ Mengetik nama grup: ${groupName}`);
-              inputFound = true;
-              break;
-            }
-          } catch (e) {
-            continue;
-          }
+        // Step 3: Select group
+        console.log("🔍 Memilih grup dari dropdown...");
+        const groupName = group.split("/").pop();
+        const groupSelected = await selectGroupFromDropdown(page, groupName, timeout);
+        if (!groupSelected) {
+          throw new Error("Gagal memilih grup dari dropdown.");
         }
-
-        if (!inputFound) {
-          throw new Error("Input field untuk grup tidak ditemukan.");
-        }
-
-        await delay(3000);
-
-        // Pilih grup pertama dari dropdown
-        const optionSelectors = [
-          'div[role="listbox"] div[role="option"]:first-child',
-          'div[role="option"]:first-child',
-          'ul[role="listbox"] li:first-child',
-          'div[data-testid*="typeahead"] div:first-child'
-        ];
-
-        console.log("🔍 Mencari opsi grup di dropdown...");
-        const optionClicked = await waitAndClick(page, optionSelectors, 5000);
-        
-        if (optionClicked) {
-          console.log("✅ Grup dipilih dari dropdown.");
-        } else {
-          console.log("⚠️ Dropdown tidak ditemukan, lanjut ke langkah berikutnya.");
-        }
-
+        console.log(`✅ Grup dipilih: ${groupName}`);
         await delay(2000);
 
-        // Ambil caption video untuk AI (optional)
+        // Step 4: Add caption (optional)
+        console.log("🔍 Menambahkan caption...");
         let videoCaption = "";
         try {
           videoCaption = await page.$eval('div[data-ad-preview="message"]', el => el.textContent);
@@ -310,67 +315,18 @@ async function main() {
           // Caption not found, use empty string
         }
 
-        // Tambahkan caption dengan multiple selectors
-        const captionSelectors = [
-          'div[aria-label="Komentar Anda"]',
-          'div[aria-label="Your comment"]',
-          'div[contenteditable="true"][data-text*="Tulis"]',
-          'div[contenteditable="true"][data-text*="Write"]',
-          'textarea[placeholder*="comment"]',
-          'div[contenteditable="true"]'
-        ];
-
-        console.log("🔍 Mencari area komentar...");
-        let captionAdded = false;
-        
-        for (const selector of captionSelectors) {
-          try {
-            await page.waitForSelector(selector, { timeout: 2000, visible: true });
-            const captionBox = await page.$(selector);
-            if (captionBox) {
-              await captionBox.click();
-              await delay(1000);
-              
-              const caption = await generateCaptionFromGemini(videoCaption);
-              await page.keyboard.type(caption, { delay: 80 });
-              console.log(`✅ Caption ditambahkan: ${caption}`);
-              captionAdded = true;
-              break;
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-
-        if (!captionAdded) {
+        const caption = await generateCaptionFromGemini(videoCaption);
+        const captionAdded = await addCaption(page, caption, 5000);
+        if (captionAdded) {
+          console.log(`✅ Caption ditambahkan: ${caption}`);
+        } else {
           console.log("⚠️ Area komentar tidak ditemukan, lanjut tanpa caption.");
         }
-
         await delay(2000);
 
-        // Klik tombol "Posting/Post"
-        const postSelectors = [
-          'div[aria-label="Posting"]',
-          'div[aria-label="Post"]',
-          'button[type="submit"]',
-          'div[role="button"][aria-label*="Post"]',
-          'div[role="button"][aria-label*="Posting"]'
-        ];
-
-        const postXPaths = [
-          '//div[@role="button" and (@aria-label="Posting" or @aria-label="Post")]',
-          '//button[text()="Posting" or text()="Post"]',
-          '//div[@role="button" and (contains(text(), "Posting") or contains(text(), "Post"))]'
-        ];
-
+        // Step 5: Click post button
         console.log("🔍 Mencari tombol 'Posting/Post'...");
-        
-        let postClicked = await waitAndClick(page, postSelectors, 5000);
-        
-        if (!postClicked) {
-          postClicked = await waitAndClickXPath(page, postXPaths, 5000);
-        }
-
+        const postClicked = await clickPostButton(page, timeout);
         if (postClicked) {
           console.log(`✅ Berhasil share ke: ${group}`);
         } else {
