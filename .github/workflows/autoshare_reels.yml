@@ -3,7 +3,7 @@ name: Auto Share Reels
 
 on:
   schedule:
-    - cron: '0 7,12,19 * * *'   # 3x sehari
+    - cron: '0 15 * * *'   # 3x sehari
   workflow_dispatch:
 
 jobs:
