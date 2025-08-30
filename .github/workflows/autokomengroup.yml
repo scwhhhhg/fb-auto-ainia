@@ -7,7 +7,7 @@ on:
   # Menjalankan bot secara otomatis sesuai jadwal
   schedule:
     # Contoh: Jalankan setiap 6 jam sekali
-    - cron: '0 */6 * * *'
+    - cron: '0 */4 * * *'
 
 jobs:
   run-bot:
