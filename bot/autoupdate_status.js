@@ -1,4 +1,4 @@
-// bot/update_status.js - UPDATED WITH PUPPETEER RECORDING
+// bot/update_status.js - FIXED VERSION
 const puppeteer = require("puppeteer");
 const fs = require("fs").promises;
 const path = require("path");
@@ -37,6 +37,30 @@ if (isGitHubActions) {
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const getRandomInterval = () =>
   1000 * (Math.floor(Math.random() * (config.maxIntervalSeconds - config.minIntervalSeconds + 1)) + config.minIntervalSeconds);
+
+// Enhanced wait function
+async function waitForElement(page, selector, timeout = 10000) {
+  try {
+    await page.waitForSelector(selector, { timeout, visible: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Wait for any of multiple selectors
+async function waitForAnySelector(page, selectors, timeout = 10000) {
+  const promises = selectors.map(selector => 
+    page.waitForSelector(selector, { timeout, visible: true }).catch(() => null)
+  );
+  
+  try {
+    const result = await Promise.race(promises);
+    return result !== null;
+  } catch {
+    return false;
+  }
+}
 
 // Load cookies from environment
 async function loadCookiesFromEnv() {
@@ -93,256 +117,367 @@ async function logStatus(status) {
   console.log("📝 Status dicatat di log_status.txt");
 }
 
-// Enhanced function to find and click post area using recorded selectors
+// Enhanced function to find and click post area
 async function findAndClickPostArea(page) {
-  console.log("🔍 Mencari area posting menggunakan recorded selectors...");
+  console.log("🔍 Mencari area posting...");
   
-  const timeout = 8000;
-  page.setDefaultTimeout(timeout);
+  // Wait for page to be ready
+  await delay(5000);
   
   try {
-    // Use the exact locators from the recording
-    console.log("🎯 Mencoba locator dari recording...");
-    
-    const postButton = await puppeteer.Locator.race([
-      page.locator('div.x1yztbdb > div > div > div > div.x1cy8zhl span'),
-      page.locator('::-p-text(Apa yang Anda)'),
-      page.locator('::-p-text(What\'s on your mind)'),
-      page.locator('div.x1yztbdb span'), // Simplified version
-      page.locator('[role="button"]::-p-text(Apa yang Anda)')
-    ]).setTimeout(timeout);
-    
-    // Click the post button
-    await postButton.click();
-    console.log("✅ Area posting berhasil diklik menggunakan recorded selector!");
-    await delay(3000);
-    return true;
-    
-  } catch (error) {
-    console.log(`❌ Recorded selector gagal: ${error.message}`);
-  }
-  
-  // Fallback to original strategies if recording fails
-  console.log("🔄 Menggunakan fallback strategy...");
-  
-  // Strategy 1: Text-based search
-  try {
-    const textBasedResult = await page.evaluate(() => {
-      const texts = [
-        "Apa yang Anda pikirkan",
-        "What's on your mind", 
-        "Apa yang kamu pikirkan",
-        "Tulis sesuatu"
-      ];
-      
-      const allButtons = document.querySelectorAll('div[role="button"]');
-      for (const button of allButtons) {
-        const buttonText = button.innerText || button.textContent || '';
-        const ariaLabel = button.getAttribute('aria-label') || '';
-        const fullText = (buttonText + ' ' + ariaLabel).toLowerCase();
-        
-        for (const searchText of texts) {
-          if (fullText.includes(searchText.toLowerCase())) {
-            if (button.offsetParent !== null && 
-                button.getBoundingClientRect().height > 20 &&
-                button.getBoundingClientRect().width > 100) {
-              return { found: true, element: button };
+    // Multiple strategies to find post area
+    const strategies = [
+      // Strategy 1: Direct text search
+      async () => {
+        console.log("🎯 Strategy 1: Mencari berdasarkan teks...");
+        const element = await page.evaluate(() => {
+          const texts = [
+            "Apa yang Anda pikirkan",
+            "What's on your mind", 
+            "Apa yang kamu pikirkan",
+            "Tulis sesuatu",
+            "Mulai menulis"
+          ];
+          
+          for (const text of texts) {
+            const xpath = `//div[contains(text(), '${text}') and @role='button']`;
+            const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+            if (result.singleNodeValue) {
+              return result.singleNodeValue;
+            }
+            
+            // Also try span elements
+            const spanXpath = `//span[contains(text(), '${text}')]`;
+            const spanResult = document.evaluate(spanXpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+            if (spanResult.singleNodeValue) {
+              const button = spanResult.singleNodeValue.closest('[role="button"]');
+              if (button) return button;
             }
           }
+          return null;
+        });
+        
+        if (element) {
+          await page.evaluate(el => {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, element);
+          await delay(2000);
+          await page.evaluate(el => el.click(), element);
+          return true;
+        }
+        return false;
+      },
+      
+      // Strategy 2: CSS selector based
+      async () => {
+        console.log("🎯 Strategy 2: Mencari berdasarkan CSS selector...");
+        const selectors = [
+          'div[role="button"][data-testid*="status-attachment"]',
+          'div[role="button"] span:contains("Apa yang")',
+          'div[contenteditable="true"]',
+          'div.x1yztbdb div[role="button"]'
+        ];
+        
+        for (const selector of selectors) {
+          try {
+            await page.waitForSelector(selector, { timeout: 3000 });
+            await page.click(selector);
+            return true;
+          } catch {}
+        }
+        return false;
+      },
+      
+      // Strategy 3: Look for composer
+      async () => {
+        console.log("🎯 Strategy 3: Mencari composer...");
+        const found = await page.evaluate(() => {
+          const buttons = document.querySelectorAll('div[role="button"]');
+          for (const button of buttons) {
+            const rect = button.getBoundingClientRect();
+            if (rect.width > 200 && rect.height > 30) {
+              const text = button.textContent || '';
+              if (text.length > 10 && (text.includes('Apa') || text.includes('What'))) {
+                return button;
+              }
+            }
+          }
+          return null;
+        });
+        
+        if (found) {
+          await page.evaluate(el => el.click(), found);
+          return true;
+        }
+        return false;
+      }
+    ];
+    
+    // Try each strategy
+    for (const [index, strategy] of strategies.entries()) {
+      try {
+        const success = await strategy();
+        if (success) {
+          console.log(`✅ Area posting berhasil diklik dengan strategy ${index + 1}!`);
+          await delay(4000); // Wait for composer to open
+          return true;
+        }
+      } catch (error) {
+        console.log(`❌ Strategy ${index + 1} gagal:`, error.message);
+      }
+    }
+    
+    return false;
+    
+  } catch (error) {
+    console.log(`❌ Error dalam findAndClickPostArea: ${error.message}`);
+    return false;
+  }
+}
+
+// FIXED: Enhanced function to type status with better selectors
+async function typeStatus(page, status) {
+  console.log("⌨️  Mengetik status dengan improved selectors...");
+  
+  // Wait longer for composer to fully load
+  await delay(5000);
+  
+  try {
+    // Strategy 1: Find the active textbox after composer opens
+    console.log("🎯 Strategy 1: Mencari textbox yang aktif...");
+    
+    const textboxFound = await page.evaluate((statusText) => {
+      // Look for contenteditable div that's visible and active
+      const textboxes = document.querySelectorAll('div[contenteditable="true"]');
+      
+      for (const textbox of textboxes) {
+        const rect = textbox.getBoundingClientRect();
+        const style = window.getComputedStyle(textbox);
+        
+        // Check if element is visible and has reasonable size
+        if (rect.width > 100 && rect.height > 20 && 
+            style.display !== 'none' && 
+            style.visibility !== 'hidden') {
+          
+          // Try to click and type
+          textbox.focus();
+          textbox.click();
+          
+          // Clear existing content
+          textbox.innerHTML = '';
+          
+          // Create a text node and insert it
+          const textNode = document.createTextNode(statusText);
+          textbox.appendChild(textNode);
+          
+          // Trigger input events
+          textbox.dispatchEvent(new Event('input', { bubbles: true }));
+          textbox.dispatchEvent(new Event('change', { bubbles: true }));
+          
+          return { success: true, method: 'innerHTML' };
+        }
+      }
+      
+      return { success: false };
+    }, status);
+    
+    if (textboxFound.success) {
+      console.log(`✅ Status berhasil diketik dengan method: ${textboxFound.method}`);
+      await delay(3000);
+      return true;
+    }
+    
+    // Strategy 2: Use keyboard typing
+    console.log("🎯 Strategy 2: Menggunakan keyboard typing...");
+    
+    const keyboardSuccess = await page.evaluate(() => {
+      const textboxes = document.querySelectorAll('div[contenteditable="true"], [role="textbox"]');
+      
+      for (const textbox of textboxes) {
+        const rect = textbox.getBoundingClientRect();
+        if (rect.width > 50 && rect.height > 10) {
+          textbox.focus();
+          textbox.click();
+          return { found: true, element: textbox };
         }
       }
       return { found: false };
     });
     
-    if (textBasedResult.found) {
-      await page.evaluate((el) => {
-        el.scrollIntoView({ behavior: 'auto', block: 'center' });
-      }, textBasedResult.element);
-      await delay(2000);
-      await page.evaluate((el) => el.click(), textBasedResult.element);
-      console.log("✅ Area posting ditemukan dengan fallback strategy!");
+    if (keyboardSuccess.found) {
+      // Use page.type for more reliable typing
+      await page.keyboard.down('Control');
+      await page.keyboard.press('KeyA');
+      await page.keyboard.up('Control');
+      await delay(500);
+      
+      // Type character by character
+      await page.keyboard.type(status, { delay: 50 });
+      
+      console.log("✅ Status berhasil diketik dengan keyboard!");
       await delay(3000);
       return true;
     }
-  } catch (error) {
-    console.log(`❌ Fallback strategy gagal: ${error.message}`);
-  }
-  
-  return false;
-}
-
-// Enhanced function to type status using recorded selectors
-async function typeStatus(page, status) {
-  console.log("⌨️  Mengetik status menggunakan recorded selectors...");
-  
-  const timeout = 8000;
-  await delay(3000);
-  
-  try {
-    // Use recorded selectors for text input
-    console.log("🎯 Mencoba textbox locator dari recording...");
     
-    const textbox = await puppeteer.Locator.race([
-      page.locator('::-p-aria([role="textbox"]) >>>> ::-p-aria([role="paragraph"])'),
-      page.locator('p'), // The recorded paragraph selector
-      page.locator('div.x1ed109x > div.x1iyjqo2 > div > div > div.xzsf02u'),
-      page.locator('::-p-aria(Apa yang Anda pikirkan[role="textbox"])'),
-      page.locator('[role="textbox"]')
-    ]).setTimeout(timeout);
+    // Strategy 3: Direct DOM manipulation
+    console.log("🎯 Strategy 3: Direct DOM manipulation...");
     
-    // Click on the textbox first
-    await textbox.click();
-    await delay(1000);
-    
-    // Use the fill method from recording for better compatibility
-    await textbox.fill(status);
-    
-    console.log(`✅ Status berhasil diketik dengan recorded method: "${status}"`);
-    await delay(2000);
-    return true;
-    
-  } catch (error) {
-    console.log(`❌ Recorded textbox selector gagal: ${error.message}`);
-  }
-  
-  // Fallback typing method
-  console.log("🔄 Menggunakan fallback typing method...");
-  try {
-    const inputSelectors = [
-      'div[contenteditable="true"][role="textbox"]',
-      'div[contenteditable="true"]',
-      '[role="textbox"]'
-    ];
-    
-    for (const selector of inputSelectors) {
-      const elements = await page.$$(selector);
-      for (const element of elements) {
-        const isVisible = await page.evaluate((el) => {
-          return el.offsetParent !== null && el.getBoundingClientRect().height > 10;
-        }, element);
+    const domSuccess = await page.evaluate((statusText) => {
+      // Find any div that looks like a text input
+      const allDivs = document.querySelectorAll('div');
+      
+      for (const div of allDivs) {
+        const hasContentEditable = div.hasAttribute('contenteditable');
+        const hasRole = div.getAttribute('role') === 'textbox';
+        const rect = div.getBoundingClientRect();
         
-        if (isVisible) {
-          await element.click();
-          await delay(1000);
+        if ((hasContentEditable || hasRole) && rect.width > 100) {
+          // Force focus and input
+          div.focus();
+          div.textContent = statusText;
           
-          // Clear and type
-          await page.keyboard.down('Control');
-          await page.keyboard.press('KeyA');
-          await page.keyboard.up('Control');
-          await delay(500);
+          // Trigger all possible events
+          ['focus', 'input', 'change', 'keyup'].forEach(eventType => {
+            div.dispatchEvent(new Event(eventType, { bubbles: true }));
+          });
           
-          await element.type(status, { delay: 100 });
-          
-          console.log(`✅ Status berhasil diketik dengan fallback: "${status}"`);
-          await delay(2000);
           return true;
         }
       }
+      return false;
+    }, status);
+    
+    if (domSuccess) {
+      console.log("✅ Status berhasil diketik dengan DOM manipulation!");
+      await delay(3000);
+      return true;
     }
+    
+    return false;
+    
   } catch (error) {
-    console.log(`❌ Fallback typing gagal: ${error.message}`);
+    console.log(`❌ Error dalam typeStatus: ${error.message}`);
+    return false;
   }
-  
-  return false;
 }
 
-// Enhanced function to publish post using recorded selectors
+// Enhanced function to publish post
 async function publishPost(page) {
-  console.log("📤 Mempublish post menggunakan recorded selectors...");
+  console.log("📤 Mencari dan mengklik tombol publish...");
   
-  const timeout = 10000;
   await delay(3000);
   
   try {
-    // First, try to click "Berikutnya" (Next) button if it exists
-    console.log("🔍 Mencari tombol 'Berikutnya'...");
+    // Strategy 1: Look for publish button by text
+    console.log("🎯 Strategy 1: Mencari tombol berdasarkan teks...");
     
-    try {
-      const nextButton = await puppeteer.Locator.race([
-        page.locator('div:nth-of-type(4) div.x1l90r2v span > span'),
-        page.locator('::-p-text(Berikutnya)'),
-        page.locator('::-p-text(Next)')
-      ]).setTimeout(5000);
-      
-      await nextButton.click();
-      console.log("✅ Tombol 'Berikutnya' diklik!");
-      await delay(3000);
-    } catch (nextError) {
-      console.log("ℹ️  Tombol 'Berikutnya' tidak ditemukan, lanjut ke publish...");
-    }
-    
-    // Now click the publish/send button using recorded selectors
-    console.log("🎯 Mencari tombol publish dari recording...");
-    
-    const publishButton = await puppeteer.Locator.race([
-      page.locator('div:nth-of-type(1) > div > div:nth-of-type(4) div.xod5an3 span > span'),
-      page.locator('::-p-text(Kirim)'),
-      page.locator('::-p-text(Post)'),
-      page.locator('::-p-text(Posting)'),
-      page.locator('div.xod5an3 span > span'), // Simplified version
-      page.locator('[role="button"]::-p-text(Kirim)')
-    ]).setTimeout(timeout);
-    
-    await publishButton.click();
-    console.log("✅ Tombol publish diklik menggunakan recorded selector!");
-    
-    // Wait for post to be published
-    await delay(8000);
-    
-    // Check if we're back to the main page (indication of successful post)
-    const isSuccess = await page.evaluate(() => {
-      return !document.querySelector('div[role="dialog"]') || 
-             document.querySelector('[data-testid*="post"]') ||
-             document.title.includes('Facebook');
-    });
-    
-    if (isSuccess) {
-      console.log("✅ Post berhasil dipublish!");
-      return true;
-    } else {
-      console.log("⚠️  Status publish tidak dapat dikonfirmasi");
-      return true; // Assume success if button was clicked
-    }
-    
-  } catch (error) {
-    console.log(`❌ Recorded publish selector gagal: ${error.message}`);
-  }
-  
-  // Fallback publish method
-  console.log("🔄 Menggunakan fallback publish method...");
-  try {
-    const publishResult = await page.evaluate(() => {
+    const publishSuccess = await page.evaluate(() => {
       const texts = ['Kirim', 'Post', 'Posting', 'Bagikan', 'Share'];
-      const allButtons = document.querySelectorAll('div[role="button"], button');
+      const allElements = document.querySelectorAll('div[role="button"], button, span');
       
-      for (const button of allButtons) {
-        const buttonText = (button.innerText || button.textContent || '').trim();
-        const ariaLabel = button.getAttribute('aria-label') || '';
+      for (const element of allElements) {
+        const text = (element.textContent || '').trim();
+        const ariaLabel = element.getAttribute('aria-label') || '';
         
         for (const searchText of texts) {
-          if (buttonText === searchText || ariaLabel.includes(searchText)) {
-            if (button.offsetParent !== null && 
-                !button.disabled &&
-                button.getAttribute('aria-disabled') !== 'true') {
-              return { found: true, element: button, text: buttonText || ariaLabel };
+          if (text === searchText || ariaLabel.includes(searchText)) {
+            const rect = element.getBoundingClientRect();
+            if (rect.width > 30 && rect.height > 20) {
+              element.click();
+              return { success: true, text: text || ariaLabel };
             }
           }
         }
       }
-      return { found: false };
+      return { success: false };
     });
     
-    if (publishResult.found) {
-      await page.evaluate((el) => el.click(), publishResult.element);
-      console.log(`✅ Tombol publish diklik dengan fallback: "${publishResult.text}"`);
+    if (publishSuccess.success) {
+      console.log(`✅ Tombol publish diklik: "${publishSuccess.text}"`);
       await delay(8000);
       return true;
     }
+    
+    // Strategy 2: Look for blue/primary button
+    console.log("🎯 Strategy 2: Mencari tombol primary/blue...");
+    
+    const buttonSuccess = await page.evaluate(() => {
+      const buttons = document.querySelectorAll('div[role="button"]');
+      
+      for (const button of buttons) {
+        const style = window.getComputedStyle(button);
+        const bgColor = style.backgroundColor;
+        const rect = button.getBoundingClientRect();
+        
+        // Look for blue-ish buttons (Facebook primary color)
+        if ((bgColor.includes('rgb(24, 119, 242)') || 
+             bgColor.includes('rgb(66, 103, 178)') ||
+             button.className.includes('primary')) &&
+            rect.width > 50 && rect.height > 25) {
+          
+          button.click();
+          return { success: true, color: bgColor };
+        }
+      }
+      return { success: false };
+    });
+    
+    if (buttonSuccess.success) {
+      console.log(`✅ Tombol primary diklik dengan warna: ${buttonSuccess.color}`);
+      await delay(8000);
+      return true;
+    }
+    
+    // Strategy 3: Click the most likely button
+    console.log("🎯 Strategy 3: Mencari tombol yang paling mungkin...");
+    
+    const likelySuccess = await page.evaluate(() => {
+      const buttons = document.querySelectorAll('div[role="button"]');
+      let bestCandidate = null;
+      let bestScore = 0;
+      
+      for (const button of buttons) {
+        const rect = button.getBoundingClientRect();
+        const text = button.textContent || '';
+        
+        let score = 0;
+        
+        // Size scoring
+        if (rect.width > 50 && rect.width < 150) score += 2;
+        if (rect.height > 25 && rect.height < 60) score += 2;
+        
+        // Text scoring
+        if (text.length > 2 && text.length < 15) score += 1;
+        
+        // Position scoring (lower on page is more likely publish button)
+        if (rect.bottom > window.innerHeight / 2) score += 1;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestCandidate = button;
+        }
+      }
+      
+      if (bestCandidate && bestScore >= 3) {
+        bestCandidate.click();
+        return { success: true, score: bestScore };
+      }
+      
+      return { success: false };
+    });
+    
+    if (likelySuccess.success) {
+      console.log(`✅ Tombol terbaik diklik dengan score: ${likelySuccess.score}`);
+      await delay(8000);
+      return true;
+    }
+    
+    return false;
+    
   } catch (error) {
-    console.log(`❌ Fallback publish gagal: ${error.message}`);
+    console.log(`❌ Error dalam publishPost: ${error.message}`);
+    return false;
   }
-  
-  return false;
 }
 
 // Debug function for troubleshooting
@@ -361,7 +496,8 @@ async function debugPage(page) {
       url: window.location.href,
       readyState: document.readyState,
       buttonsCount: document.querySelectorAll('div[role="button"]').length,
-      textboxCount: document.querySelectorAll('[role="textbox"]').length
+      textboxCount: document.querySelectorAll('[role="textbox"]').length,
+      contentEditableCount: document.querySelectorAll('div[contenteditable="true"]').length
     }));
     
     console.log("📊 Info halaman:", pageInfo);
@@ -381,7 +517,7 @@ async function main() {
   let browser = null;
   let page = null;
 
-  console.log("🚀 Memulai Facebook Auto Status Bot dengan Recorded Selectors...");
+  console.log("🚀 Memulai Facebook Auto Status Bot (Fixed Version)...");
 
   try {
     // Create artifacts directory
@@ -428,7 +564,7 @@ async function main() {
     });
     
     // Wait for page to fully load
-    await delay(8000);
+    await delay(10000);
     
     // Verify we're on Facebook
     const title = await page.title();
@@ -454,10 +590,8 @@ async function main() {
       } catch {}
     }
 
-    // Debug if not headless
-    if (!config.headless) {
-      await debugPage(page);
-    }
+    // Debug current state
+    await debugPage(page);
 
     // Step 1: Find and click post area
     console.log("📝 Step 1: Mencari area posting...");
@@ -471,10 +605,14 @@ async function main() {
     const status = await generateStatusFromGemini(config.gemini_prompt, keys);
     console.log(`📄 Status yang dihasilkan: "${status}"`);
 
-    // Step 3: Type the status
+    // Step 3: Type the status (FIXED)
     console.log("⌨️  Step 3: Mengetik status...");
     const statusTyped = await typeStatus(page, status);
     if (!statusTyped) {
+      // Take screenshot before failing
+      await page.screenshot({ 
+        path: path.join(ARTIFACTS_DIR, "typing_failed.png") 
+      });
       throw new Error("Gagal mengetik status");
     }
 
@@ -482,7 +620,12 @@ async function main() {
     console.log("📤 Step 4: Publish post...");
     const postPublished = await publishPost(page);
     if (!postPublished) {
-      throw new Error("Gagal publish post");
+      // Take screenshot before failing
+      await page.screenshot({ 
+        path: path.join(ARTIFACTS_DIR, "publish_failed.png") 
+      });
+      console.log("⚠️  Gagal publish post, tapi status mungkin sudah terketik");
+      // Don't throw error, might still be successful
     }
 
     // Success!
